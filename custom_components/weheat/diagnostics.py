@@ -24,6 +24,12 @@ TO_REDACT: set[str] = {
     "installationId",
     "access_token",
     "refresh_token",
+    "accessToken",
+    "refreshToken",
+    "portal_token",
+    "portal_username",
+    "portal_password",
+    "portal_session_token",
 }
 
 

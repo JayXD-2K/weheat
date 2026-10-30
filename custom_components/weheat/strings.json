@@ -19,6 +19,22 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Weheat Portal Authentication (Write Access)",
+        "description": "The standard Home Assistant OAuth client (`HomeAssistantAPI`) only provides read access to `/third_party/api/v1/*`. To enable portal settings and write controls (quiet mode, silent schedule, DHW target temperature, Legionella prevention), enter your Weheat Portal email & password (for automatic PKCE token refresh) OR paste a session JSON / Bearer token from `https://portal.weheat.nl/api/auth/session`.",
+        "data": {
+          "portal_username": "Weheat Portal Email",
+          "portal_password": "Weheat Portal Password",
+          "portal_session_token": "Portal Session JSON or Bearer Token (optional, for SSO accounts)"
+        }
+      }
+    },
+    "error": {
+      "invalid_portal_auth": "Failed to authenticate with Weheat Portal. Check your email/password or session token."
+    }
+  },
   "services": {
     "set_quiet_mode": {
       "name": "Set quiet mode",

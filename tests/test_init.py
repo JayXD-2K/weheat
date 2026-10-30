@@ -204,3 +204,39 @@ async def test_unload_entry(mock_config_entry: ConfigEntry) -> None:
     assert result is True
     assert len(hass.config_entries.unloaded_platforms) == 1
     assert hass.config_entries.unloaded_platforms[0][1] == PLATFORMS
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_settings_403_non_fatal(
+    mock_config_entry: ConfigEntry, mock_heat_pump_info: HeatPumpInfo
+) -> None:
+    """Verify 403/UpdateFailed on settings coordinator does not fail integration setup."""
+    hass = HomeAssistant()
+
+    with (
+        patch(
+            "custom_components.weheat.OAuth2Session.async_ensure_token_valid",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.WeheatClient.async_get_heat_pumps",
+            new=AsyncMock(return_value=[mock_heat_pump_info]),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatDataUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatEnergyUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatSettingsUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(side_effect=ConfigEntryAuthFailed("403 Forbidden on portal")),
+        ),
+    ):
+        result = await async_setup_entry(hass, mock_config_entry)
+
+    assert result is True
+    assert len(mock_config_entry.runtime_data) == 1
+    assert mock_config_entry.runtime_data[0].settings_coordinator.data is not None

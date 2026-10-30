@@ -302,12 +302,14 @@ class ConfigEntry:
         self,
         entry_id: str = "test_entry",
         data: dict[str, Any] | None = None,
+        options: dict[str, Any] | None = None,
         unique_id: str | None = None,
         title: str = "Weheat cloud",
         runtime_data: Any = None,
     ) -> None:
         self.entry_id = entry_id
         self.data = data or {}
+        self.options = options or {}
         self.unique_id = unique_id
         self.title = title
         self.runtime_data: Any = runtime_data if runtime_data is not None else []
@@ -539,6 +541,31 @@ class AbstractOAuth2FlowHandler:
         return {"type": "external", "step_id": "auth"}
 
 
+class OptionsFlow:
+    """Mock OptionsFlow."""
+
+    def __init__(self) -> None:
+        self.hass: HomeAssistant = HomeAssistant()
+
+    def async_create_entry(
+        self, title: str = "", data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return {"type": "create_entry", "title": title, "data": data or {}}
+
+    def async_show_form(
+        self,
+        step_id: str,
+        data_schema: Any = None,
+        errors: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "type": "form",
+            "step_id": step_id,
+            "data_schema": data_schema,
+            "errors": errors or {},
+        }
+
+
 def async_redact_data(data: dict[str, Any], to_redact: set[str]) -> dict[str, Any]:
     """Redact sensitive fields from data dictionary."""
     if not isinstance(data, dict):
@@ -585,6 +612,7 @@ def install_ha_stubs() -> None:
 
     ha_config_entries = types.ModuleType("homeassistant.config_entries")
     ha_config_entries.ConfigEntry = ConfigEntry
+    ha_config_entries.OptionsFlow = OptionsFlow
     ha_config_entries.SOURCE_REAUTH = SOURCE_REAUTH
     ha_config_entries.ConfigFlowResult = Any
 

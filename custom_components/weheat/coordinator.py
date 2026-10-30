@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
+import time
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import ClientError, ClientResponseError
 from homeassistant.config_entries import ConfigEntry
@@ -18,9 +20,13 @@ from .client import (
     WeheatApiError,
     WeheatAuthError,
     WeheatClient,
+    WeheatError,
     WeheatTimeoutError,
 )
 from .const import (
+    CONF_PORTAL_PASSWORD,
+    CONF_PORTAL_TOKEN,
+    CONF_PORTAL_USERNAME,
     DOMAIN,
     ENERGY_UPDATE_INTERVAL,
     LOG_UPDATE_INTERVAL,
@@ -300,9 +306,127 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
                 installation_id, token=token
             )
         except WeheatAuthError as err:
+            if err.status_code == 403:
+                raise UpdateFailed(
+                    f"Portal settings access forbidden (HTTP 403). Configure Weheat Portal credentials in integration options for settings/control access: {err}"
+                ) from err
             raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
         except (WeheatApiError, WeheatTimeoutError, ClientError) as err:
             raise UpdateFailed(f"Error communicating with Weheat API: {err}") from err
+
+
+class WeheatPortalSession:
+    """Session manager for weheat-portal OAuth2 PKCE tokens with OAuth2Session fallback."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry[Any],
+        client: WeheatClient,
+        fallback_session: OAuth2Session | None = None,
+    ) -> None:
+        """Initialize the portal session wrapper."""
+        self.hass = hass
+        self.config_entry = config_entry
+        self.client = client
+        self.fallback_session = fallback_session
+        self._portal_token: dict[str, Any] | None = self._extract_portal_token()
+
+    def _extract_portal_token(self) -> dict[str, Any] | None:
+        """Extract portal token dict from config entry options or data."""
+        options = getattr(self.config_entry, "options", None) or {}
+        data = getattr(self.config_entry, "data", None) or {}
+        raw_tok = options.get(CONF_PORTAL_TOKEN) or data.get(CONF_PORTAL_TOKEN)
+        if isinstance(raw_tok, dict) and raw_tok.get(CONF_ACCESS_TOKEN):
+            return dict(raw_tok)
+        return None
+
+    def _get_portal_credentials(self) -> tuple[str | None, str | None]:
+        """Extract optional saved portal username and password."""
+        options = getattr(self.config_entry, "options", None) or {}
+        data = getattr(self.config_entry, "data", None) or {}
+        username = options.get(CONF_PORTAL_USERNAME) or data.get(CONF_PORTAL_USERNAME)
+        password = options.get(CONF_PORTAL_PASSWORD) or data.get(CONF_PORTAL_PASSWORD)
+        return (
+            str(username) if username else None,
+            str(password) if password else None,
+        )
+
+    @property
+    def has_portal_auth(self) -> bool:
+        """Return True if portal token or portal credentials are configured."""
+        if self._extract_portal_token() is not None:
+            return True
+        username, password = self._get_portal_credentials()
+        return bool(username and password)
+
+    @property
+    def token(self) -> dict[str, Any]:
+        """Return the active token dictionary."""
+        if self._portal_token and self._portal_token.get(CONF_ACCESS_TOKEN):
+            return self._portal_token
+        if self.fallback_session is not None:
+            return self.fallback_session.token
+        return {}
+
+    def _persist_portal_token(self, new_token: dict[str, Any]) -> None:
+        """Persist updated portal token into memory and config entry options."""
+        self._portal_token = dict(new_token)
+        options = dict(getattr(self.config_entry, "options", None) or {})
+        options[CONF_PORTAL_TOKEN] = dict(new_token)
+        if hasattr(self.config_entry, "options") and isinstance(
+            self.config_entry.options, dict
+        ):
+            self.config_entry.options[CONF_PORTAL_TOKEN] = dict(new_token)
+        if hasattr(self.hass, "config_entries") and hasattr(
+            self.hass.config_entries, "async_update_entry"
+        ):
+            with contextlib.suppress(Exception):
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=options
+                )
+
+    async def async_ensure_token_valid(self) -> None:
+        """Ensure portal token (or fallback OAuth2Session token) is valid."""
+        latest_stored = self._extract_portal_token()
+        if latest_stored is not None:
+            self._portal_token = latest_stored
+
+        username, password = self._get_portal_credentials()
+        if self._portal_token is None and not (username and password):
+            if self.fallback_session is not None:
+                await self.fallback_session.async_ensure_token_valid()
+            return
+
+        now = time.time()
+        if self._portal_token is not None:
+            expires_at = float(self._portal_token.get("expires_at", 0.0))
+            if self._portal_token.get(CONF_ACCESS_TOKEN) and expires_at > now + 30.0:
+                return
+
+            refresh_token = self._portal_token.get("refresh_token")
+            if refresh_token:
+                try:
+                    refreshed = await self.client.async_refresh_portal_token(
+                        str(refresh_token)
+                    )
+                    self._persist_portal_token(refreshed)
+                    return
+                except WeheatError as err:
+                    LOGGER.debug(
+                        "Portal refresh_token renewal failed (%s), checking PKCE fallback",
+                        err,
+                    )
+                    if not (username and password):
+                        raise
+
+        if username and password:
+            new_token = await self.client.async_login_portal_pkce(username, password)
+            self._persist_portal_token(new_token)
+            return
+
+        if self.fallback_session is not None:
+            await self.fallback_session.async_ensure_token_valid()
 
 
 @dataclass
@@ -314,4 +438,4 @@ class WeheatData:
     energy_coordinator: WeheatEnergyUpdateCoordinator
     settings_coordinator: WeheatSettingsUpdateCoordinator | None = None
     client: WeheatClient | None = None
-    session: OAuth2Session | None = None
+    session: OAuth2Session | WeheatPortalSession | None = None

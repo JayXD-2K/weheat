@@ -187,3 +187,76 @@ async def test_reauth_steps(flow_handler: OAuth2FlowHandler) -> None:
     # User submits confirmation dialog
     confirm_result = await flow_handler.async_step_reauth_confirm(user_input={})
     assert confirm_result["type"] == "external"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_portal_pkce_success() -> None:
+    """Verify options flow authenticates via portal PKCE and saves portal_token."""
+    entry = ConfigEntry(entry_id="opt_entry", options={})
+    opt_flow = OAuth2FlowHandler.async_get_options_flow(entry)
+
+    # Initial form
+    form_res = await opt_flow.async_step_init(None)
+    assert form_res["type"] == "form"
+    assert form_res["step_id"] == "init"
+
+    mock_portal_token = {
+        "access_token": "portal_jwt_token",
+        "refresh_token": "portal_refresh_token",
+        "expires_at": 9999999999.0,
+    }
+    with patch(
+        "custom_components.weheat.config_flow.WeheatClient.async_login_portal_pkce",
+        new=AsyncMock(return_value=mock_portal_token),
+    ):
+        res = await opt_flow.async_step_init(
+            {
+                "portal_username": "user@example.com",
+                "portal_password": "secret_password",
+            }
+        )
+
+    assert res["type"] == "create_entry"
+    assert res["data"]["portal_username"] == "user@example.com"
+    assert res["data"]["portal_token"] == mock_portal_token
+
+
+@pytest.mark.asyncio
+async def test_options_flow_portal_session_json_success() -> None:
+    """Verify options flow accepts NextAuth /api/auth/session JSON."""
+    entry = ConfigEntry(entry_id="opt_entry", options={})
+    opt_flow = OAuth2FlowHandler.async_get_options_flow(entry)
+
+    with patch(
+        "custom_components.weheat.config_flow.WeheatClient.async_get_installation_topology",
+        new=AsyncMock(return_value=[]),
+    ):
+        res = await opt_flow.async_step_init(
+            {
+                "portal_session_token": '{"accessToken": "session_jwt_123"}',
+            }
+        )
+
+    assert res["type"] == "create_entry"
+    assert res["data"]["portal_token"]["access_token"] == "session_jwt_123"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_portal_auth_error() -> None:
+    """Verify options flow surfaces invalid_portal_auth on PKCE failure."""
+    entry = ConfigEntry(entry_id="opt_entry", options={})
+    opt_flow = OAuth2FlowHandler.async_get_options_flow(entry)
+
+    with patch(
+        "custom_components.weheat.config_flow.WeheatClient.async_login_portal_pkce",
+        new=AsyncMock(side_effect=WeheatAuthError("Bad credentials")),
+    ):
+        res = await opt_flow.async_step_init(
+            {
+                "portal_username": "user@example.com",
+                "portal_password": "wrong",
+            }
+        )
+
+    assert res["type"] == "form"
+    assert res["errors"] == {"base": "invalid_portal_auth"}

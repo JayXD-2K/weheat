@@ -492,3 +492,24 @@ def test_weheat_data_container(mock_hp_info: HeatPumpInfo) -> None:
     assert item.energy_coordinator is energy_coord
     assert item.settings_coordinator is settings_coord
     assert item.client is mock_client
+
+
+@pytest.mark.asyncio
+async def test_settings_coordinator_403_maps_to_update_failed(
+    mock_hp_info: HeatPumpInfo,
+) -> None:
+    """Verify HTTP 403 on portal settings raises UpdateFailed instead of ConfigEntryAuthFailed."""
+    hass = HomeAssistant()
+    entry = ConfigEntry()
+    mock_client = MagicMock()
+    mock_client.async_get_installation_settings = AsyncMock(
+        side_effect=WeheatAuthError("403 Forbidden", status_code=403)
+    )
+
+    coord = WeheatSettingsUpdateCoordinator(
+        hass, entry, None, mock_hp_info, client=mock_client
+    )
+
+    with pytest.raises(UpdateFailed) as exc_info:
+        await coord._async_update_data()
+    assert "HTTP 403" in str(exc_info.value)

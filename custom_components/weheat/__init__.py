@@ -16,11 +16,13 @@ from homeassistant.helpers.config_entry_oauth2_flow import (
     OAuth2Session,
     async_get_config_entry_implementation,
 )
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .client import (
     WeheatApiError,
     WeheatAuthError,
     WeheatClient,
+    WeheatError,
     WeheatTimeoutError,
 )
 from .const import DEFAULT_API_BASE_URL, DEFAULT_PORTAL_BASE_URL, DOMAIN
@@ -29,8 +31,10 @@ from .coordinator import (
     WeheatData,
     WeheatDataUpdateCoordinator,
     WeheatEnergyUpdateCoordinator,
+    WeheatPortalSession,
     WeheatSettingsUpdateCoordinator,
 )
+from .models import ControlBoardSettings
 from .services import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,6 +87,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
         ) from err
 
     nr_of_pumps = len(discovered_heat_pumps)
+    portal_wrapper = WeheatPortalSession(hass, entry, client, session)
+    control_session = portal_wrapper if portal_wrapper.has_portal_auth else session
 
     for pump_info in discovered_heat_pumps:
         _LOGGER.debug(
@@ -98,19 +104,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
             hass, entry, session, pump_info, client=client
         )
         settings_coordinator = WeheatSettingsUpdateCoordinator(
-            hass, entry, session, pump_info, client=client
+            hass, entry, control_session, pump_info, client=client
         )
 
         entry.runtime_data.append(
             WeheatData(
                 client=client,
-                session=session,
+                session=control_session,
                 heat_pump_info=pump_info,
                 data_coordinator=data_coordinator,
                 energy_coordinator=energy_coordinator,
                 settings_coordinator=settings_coordinator,
             )
         )
+
+    async def _async_refresh_settings_safe(
+        coord: WeheatSettingsUpdateCoordinator,
+    ) -> None:
+        """Refresh portal settings non-fatally so read-only OAuth tokens still load telemetry."""
+        try:
+            await coord.async_config_entry_first_refresh()
+        except (
+            ConfigEntryAuthFailed,
+            ConfigEntryNotReady,
+            UpdateFailed,
+            WeheatError,
+            ClientError,
+        ) as err:
+            _LOGGER.warning(
+                "Portal settings refresh skipped during setup (%s). "
+                "If using the read-only HomeAssistantAPI OAuth client, configure "
+                "Weheat Portal credentials in the integration's Configure options "
+                "to enable quiet mode, silent schedules, and control actions.",
+                err,
+            )
+            if coord.data is None:
+                coord.data = ControlBoardSettings()
 
     if entry.runtime_data:
         await asyncio.gather(
@@ -123,7 +152,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
                 for data in entry.runtime_data
             ],
             *[
-                data.settings_coordinator.async_config_entry_first_refresh()
+                _async_refresh_settings_safe(data.settings_coordinator)
                 for data in entry.runtime_data
                 if data.settings_coordinator is not None
             ],

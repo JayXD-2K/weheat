@@ -6,8 +6,15 @@ Zero unvetted dependencies; pure aiohttp implementation.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import html
 import json as json_lib
 import logging
+import re
+import secrets
+import time
+import urllib.parse
 from typing import Any
 
 import aiohttp
@@ -16,6 +23,11 @@ from aiohttp import ClientError, ClientResponseError, ClientSession, ClientTimeo
 from .const import (
     DEFAULT_API_BASE_URL,
     DEFAULT_TIMEOUT_SECONDS,
+    OAUTH2_CLIENT_ID,
+    PORTAL_AUTH_URL,
+    PORTAL_REDIRECT_URI,
+    PORTAL_SCOPES,
+    PORTAL_TOKEN_URL,
     SETTINGS_REQUEST_STATUS_MAP,
     VALID_SILENT_SCHEDULE_KEYS,
 )
@@ -890,3 +902,312 @@ class WeheatClient:
             "targetTemperature": float(target_temperature),
         }
         return await self._request("POST", url, token=token, json=payload)
+
+    # -------------------------------------------------------------------------
+    # Portal OAuth2 PKCE & Session Token Authentication
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _decode_jwt_exp(token: str) -> float | None:
+        """Extract expiration timestamp (exp) from a JWT token if present."""
+        try:
+            parts = token.strip().split(".")
+            if len(parts) != 3:
+                return None
+            payload_b64 = parts[1]
+            padding = "=" * (-len(payload_b64) % 4)
+            decoded = base64.urlsafe_b64decode(payload_b64 + padding).decode("utf-8")
+            claims = json_lib.loads(decoded)
+            if isinstance(claims, dict) and isinstance(claims.get("exp"), (int, float)):
+                return float(claims["exp"])
+        except Exception:  # noqa: S110
+            pass
+        return None
+
+    @classmethod
+    def parse_portal_session_input(cls, raw_input: str) -> dict[str, Any]:
+        """Parse a raw portal JWT or NextAuth /api/auth/session JSON payload.
+
+        Args:
+            raw_input: Raw Bearer token string or JSON from https://portal.weheat.nl/api/auth/session.
+
+        Returns:
+            Normalized token dictionary with 'access_token', optional 'refresh_token', and 'expires_at'.
+
+        Raises:
+            ValueError: If input cannot be parsed into a valid access token.
+        """
+        cleaned = raw_input.strip()
+        if not cleaned:
+            raise ValueError("Portal session input must not be empty")
+
+        if cleaned.lower().startswith("bearer "):
+            cleaned = cleaned[7:].strip()
+
+        access_token: str | None = None
+        refresh_token: str | None = None
+        expires_in: float | None = None
+
+        if cleaned.startswith("{"):
+            try:
+                parsed = json_lib.loads(cleaned)
+                if isinstance(parsed, dict):
+                    access_token = (
+                        parsed.get("access_token")
+                        or parsed.get("accessToken")
+                        or (
+                            parsed.get("token", {}).get("access_token")
+                            if isinstance(parsed.get("token"), dict)
+                            else None
+                        )
+                    )
+                    refresh_token = parsed.get("refresh_token") or parsed.get(
+                        "refreshToken"
+                    )
+                    if isinstance(parsed.get("expires_in"), (int, float)):
+                        expires_in = float(parsed["expires_in"])
+            except Exception as err:
+                raise ValueError(f"Invalid JSON in portal session input: {err}") from err
+        else:
+            access_token = cleaned
+
+        if not access_token or not isinstance(access_token, str):
+            raise ValueError("Could not extract access_token from portal session input")
+
+        exp = cls._decode_jwt_exp(access_token)
+        now = time.time()
+        if exp is not None:
+            expires_at = exp
+        elif expires_in is not None:
+            expires_at = now + expires_in
+        else:
+            expires_at = now + 300.0
+
+        token_dict: dict[str, Any] = {
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_at": expires_at,
+        }
+        if refresh_token:
+            token_dict["refresh_token"] = str(refresh_token)
+        return token_dict
+
+    async def async_login_portal_pkce(
+        self,
+        username: str,
+        password: str,
+        auth_url: str = PORTAL_AUTH_URL,
+        token_url: str = PORTAL_TOKEN_URL,
+        redirect_uri: str = PORTAL_REDIRECT_URI,
+        client_id: str = OAUTH2_CLIENT_ID,
+    ) -> dict[str, Any]:
+        """Authenticate directly as weheat-portal via Keycloak OAuth2 PKCE (S256).
+
+        Performs the authorization code + PKCE handshake against auth.weheat.nl
+        and returns a token dictionary containing access_token and refresh_token
+        with full portal read/write permissions.
+        """
+        if not username or not username.strip() or not password:
+            raise ValueError("username and password must not be empty")
+
+        code_verifier = secrets.token_urlsafe(48)
+        digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+        code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+        state = secrets.token_urlsafe(24)
+
+        auth_params = {
+            "client_id": client_id,
+            "response_type": "code",
+            "redirect_uri": redirect_uri,
+            "scope": " ".join(PORTAL_SCOPES),
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
+        }
+
+        req_timeout = ClientTimeout(total=self._request_timeout)
+        jar = aiohttp.CookieJar()
+
+        try:
+            async with aiohttp.ClientSession(
+                cookie_jar=jar, timeout=req_timeout
+            ) as auth_session:
+                # 1. Fetch Keycloak login page and session cookies
+                async with auth_session.get(
+                    auth_url,
+                    params=auth_params,
+                    headers={"User-Agent": "Mozilla/5.0"},
+                ) as get_resp:
+                    if get_resp.status >= 400:
+                        text = await get_resp.text()
+                        raise WeheatAuthError(
+                            f"Keycloak authorize request failed with HTTP {get_resp.status}: {text[:200]}",
+                            status_code=get_resp.status,
+                        )
+                    page_html = await get_resp.text()
+
+                # Extract loginAction URL from Keycloakify / Keycloak login page
+                action_match = re.search(
+                    r'"loginAction"\s*:\s*"([^"]+)"', page_html
+                ) or re.search(
+                    r'action="([^"]*login-actions/authenticate[^"]+)"', page_html
+                )
+                if not action_match:
+                    raise WeheatAuthError(
+                        "Could not locate Keycloak login action URL on auth.weheat.nl",
+                        status_code=401,
+                    )
+
+                login_action_url = html.unescape(action_match.group(1))
+                if login_action_url.startswith("/"):
+                    parsed_auth = urllib.parse.urlsplit(auth_url)
+                    login_action_url = (
+                        f"{parsed_auth.scheme}://{parsed_auth.netloc}{login_action_url}"
+                    )
+
+                # 2. Submit credentials with allow_redirects=False to capture ?code=...
+                async with auth_session.post(
+                    login_action_url,
+                    data={
+                        "username": username.strip(),
+                        "password": password,
+                        "credentialId": "",
+                    },
+                    headers={
+                        "User-Agent": "Mozilla/5.0",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                    allow_redirects=False,
+                ) as post_resp:
+                    location = post_resp.headers.get("Location", "")
+                    if post_resp.status not in (301, 302, 303, 307, 308) or not location:
+                        raise WeheatAuthError(
+                            "Invalid Weheat portal email or password",
+                            status_code=401,
+                        )
+
+                parsed_loc = urllib.parse.urlsplit(location)
+                query_params = urllib.parse.parse_qs(parsed_loc.query)
+                code_list = query_params.get("code")
+                if not code_list or not code_list[0]:
+                    error_desc = query_params.get(
+                        "error_description", ["Authorization code missing in redirect"]
+                    )[0]
+                    raise WeheatAuthError(
+                        f"Portal login failed: {error_desc}",
+                        status_code=401,
+                    )
+                auth_code = code_list[0]
+
+                # 3. Exchange authorization code + PKCE verifier for portal tokens
+                async with auth_session.post(
+                    token_url,
+                    data={
+                        "grant_type": "authorization_code",
+                        "client_id": client_id,
+                        "code": auth_code,
+                        "redirect_uri": redirect_uri,
+                        "code_verifier": code_verifier,
+                    },
+                    headers={
+                        "Accept": "application/json",
+                        "Content-Type": "application/x-www-form-urlencoded",
+                    },
+                ) as token_resp:
+                    if token_resp.status in (400, 401, 403):
+                        err_text = await token_resp.text()
+                        raise WeheatAuthError(
+                            f"Portal token exchange rejected (HTTP {token_resp.status}): {err_text[:200]}",
+                            status_code=token_resp.status,
+                        )
+                    if token_resp.status >= 400:
+                        err_text = await token_resp.text()
+                        raise WeheatApiError(
+                            f"Portal token exchange failed (HTTP {token_resp.status}): {err_text[:200]}",
+                            status_code=token_resp.status,
+                        )
+                    token_data = await token_resp.json(content_type=None)
+
+        except (WeheatAuthError, WeheatApiError, WeheatTimeoutError):
+            raise
+        except (
+            TimeoutError,
+            aiohttp.ServerTimeoutError,
+            aiohttp.SocketTimeoutError,
+        ) as err:
+            raise WeheatTimeoutError(f"Portal PKCE login timed out: {err}") from err
+        except ClientError as err:
+            raise WeheatApiError(
+                f"Connection error during portal PKCE login: {err}"
+            ) from err
+
+        if not isinstance(token_data, dict) or "access_token" not in token_data:
+            raise WeheatApiError(
+                "Missing access_token in Keycloak portal token response",
+                response_data=token_data,
+            )
+
+        expires_in = float(token_data.get("expires_in", 300))
+        token_data["expires_at"] = time.time() + expires_in
+        return token_data
+
+    async def async_refresh_portal_token(
+        self,
+        refresh_token: str,
+        token_url: str = PORTAL_TOKEN_URL,
+        client_id: str = OAUTH2_CLIENT_ID,
+    ) -> dict[str, Any]:
+        """Refresh a weheat-portal token using its OAuth2 refresh_token."""
+        if not refresh_token or not refresh_token.strip():
+            raise ValueError("refresh_token must not be empty")
+
+        req_timeout = ClientTimeout(total=self._request_timeout)
+        try:
+            async with self._session.post(
+                token_url,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": client_id,
+                    "refresh_token": refresh_token.strip(),
+                },
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                timeout=req_timeout,
+            ) as response:
+                if response.status in (400, 401, 403):
+                    err_text = await response.text()
+                    raise WeheatAuthError(
+                        f"Portal token refresh rejected (HTTP {response.status}): {err_text[:200]}",
+                        status_code=response.status,
+                    )
+                if response.status >= 400:
+                    err_text = await response.text()
+                    raise WeheatApiError(
+                        f"Portal token refresh failed (HTTP {response.status}): {err_text[:200]}",
+                        status_code=response.status,
+                    )
+                token_data = await response.json(content_type=None)
+        except (WeheatAuthError, WeheatApiError, WeheatTimeoutError):
+            raise
+        except (
+            TimeoutError,
+            aiohttp.ServerTimeoutError,
+            aiohttp.SocketTimeoutError,
+        ) as err:
+            raise WeheatTimeoutError(f"Portal token refresh timed out: {err}") from err
+        except ClientError as err:
+            raise WeheatApiError(
+                f"Connection error during portal token refresh: {err}"
+            ) from err
+
+        if not isinstance(token_data, dict) or "access_token" not in token_data:
+            raise WeheatApiError(
+                "Missing access_token in Keycloak refresh response",
+                response_data=token_data,
+            )
+
+        expires_in = float(token_data.get("expires_in", 300))
+        token_data["expires_at"] = time.time() + expires_in
+        return token_data

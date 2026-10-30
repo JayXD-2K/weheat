@@ -37,6 +37,21 @@ OAUTH2_TOKEN = (
 OAUTH2_CLIENT_ID = "weheat-portal"
 OAUTH2_SCOPES = ["openid", "offline_access"]
 
+# Portal PKCE & Session Authentication Configuration
+PORTAL_AUTH_URL = (
+    "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/auth"
+)
+PORTAL_TOKEN_URL = (
+    "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/token"
+)
+PORTAL_REDIRECT_URI = "https://portal.weheat.nl/api/auth/callback/keycloak"
+PORTAL_SCOPES = ["openid", "email", "profile", "offline_access"]
+
+CONF_PORTAL_TOKEN = "portal_token"
+CONF_PORTAL_USERNAME = "portal_username"
+CONF_PORTAL_PASSWORD = "portal_password"
+CONF_PORTAL_SESSION_TOKEN = "portal_session_token"
+
 # API Endpoints
 ENDPOINT_USER_ME = "/api/v1/users/me"
 ENDPOINT_HEAT_PUMPS = "/api/v1/heat-pumps"
