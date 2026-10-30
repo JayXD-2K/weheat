@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "boostActive": true,
+  "durationMinutes": 60,
+  "targetTemperature": 60.0,
+  "endTime": "2026-10-30T07:00:00Z"
+}

@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "status": 0,
+  "statusDescription": "Pending",
+  "message": "Settings request queued for dispatch to heat pump",
+  "requestId": "00000000-0000-0000-0000-000000000999",
+  "settingsRequestId": "00000000-0000-0000-0000-000000000999"
+}

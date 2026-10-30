@@ -1,0 +1,23 @@
+[tools]
+python = "3.13"
+uv = "0.13.0"
+ruff = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.setup]
+description = "Install dependencies and create virtual environment with uv"
+run = "uv sync --all-extras"
+
+[tasks.test]
+description = "Run offline test suite with pytest"
+run = "uv run pytest -v"
+
+[tasks.lint]
+description = "Check linting and formatting standards with ruff"
+run = "uv run ruff check . && uv run ruff format --check ."
+
+[tasks.format]
+description = "Auto-format code and apply safe lint fixes with ruff"
+run = "uv run ruff format . && uv run ruff check --fix ."
