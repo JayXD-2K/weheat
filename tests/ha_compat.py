@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+import inspect
 import sys
 import types
 from dataclasses import dataclass
@@ -98,6 +100,18 @@ class Entity:
     _attr_unique_id: str | None = None
     _attr_device_info: Any = None
 
+    @property
+    def unique_id(self) -> str | None:
+        return self._attr_unique_id
+
+    @property
+    def device_info(self) -> Any:
+        return self._attr_device_info
+
+    def async_write_ha_state(self) -> None:
+        """Mock writing entity state to state machine."""
+        pass
+
 
 class SensorEntity(Entity):
     """Mock SensorEntity."""
@@ -105,6 +119,100 @@ class SensorEntity(Entity):
 
 class BinarySensorEntity(Entity):
     """Mock BinarySensorEntity."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class SelectEntityDescription(EntityDescription):
+    options: list[str] | None = None
+
+
+class SelectEntity(Entity):
+    """Mock SelectEntity."""
+
+    _attr_current_option: str | None = None
+    _attr_options: list[str] = []
+
+    @property
+    def current_option(self) -> str | None:
+        return self._attr_current_option
+
+    @property
+    def options(self) -> list[str]:
+        return self._attr_options
+
+    async def async_select_option(self, option: str) -> None:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, kw_only=True)
+class SwitchEntityDescription(EntityDescription):
+    pass
+
+
+class SwitchEntity(Entity):
+    """Mock SwitchEntity."""
+
+    _attr_is_on: bool | None = None
+
+    @property
+    def is_on(self) -> bool | None:
+        return self._attr_is_on
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        raise NotImplementedError
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, kw_only=True)
+class TimeEntityDescription(EntityDescription):
+    pass
+
+
+class TimeEntity(Entity):
+    """Mock TimeEntity."""
+
+    _attr_native_value: datetime.time | None = None
+
+    @property
+    def native_value(self) -> datetime.time | None:
+        return self._attr_native_value
+
+    async def async_set_value(self, value: datetime.time) -> None:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, kw_only=True)
+class ButtonEntityDescription(EntityDescription):
+    pass
+
+
+class ButtonEntity(Entity):
+    """Mock ButtonEntity."""
+
+    async def async_press(self) -> None:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, kw_only=True)
+class NumberEntityDescription(EntityDescription):
+    native_max_value: float = 100.0
+    native_min_value: float = 0.0
+    native_step: float = 1.0
+
+
+class NumberEntity(Entity):
+    """Mock NumberEntity."""
+
+    _attr_native_value: float | None = None
+
+    @property
+    def native_value(self) -> float | None:
+        return self._attr_native_value
+
+    async def async_set_native_value(self, value: float) -> None:
+        raise NotImplementedError
 
 
 class CoordinatorEntity(Entity):
@@ -196,12 +304,78 @@ class ConfigEntry:
         data: dict[str, Any] | None = None,
         unique_id: str | None = None,
         title: str = "Weheat cloud",
+        runtime_data: Any = None,
     ) -> None:
         self.entry_id = entry_id
         self.data = data or {}
         self.unique_id = unique_id
         self.title = title
-        self.runtime_data: Any = []
+        self.runtime_data: Any = runtime_data if runtime_data is not None else []
+
+
+@dataclass
+class ServiceCall:
+    """Mock ServiceCall matching Home Assistant core."""
+
+    domain: str
+    service: str
+    data: dict[str, Any]
+    context: Any = None
+
+
+class ServiceRegistry:
+    """Mock ServiceRegistry managing registered actions/services."""
+
+    def __init__(self) -> None:
+        self._services: dict[str, dict[str, Any]] = {}
+
+    def has_service(self, domain: str, service: str) -> bool:
+        """Return True if service is registered."""
+        return domain in self._services and service in self._services[domain]
+
+    def async_register(
+        self,
+        domain: str,
+        service: str,
+        service_func: Any,
+        schema: Any = None,
+    ) -> None:
+        """Register a service handler."""
+        if domain not in self._services:
+            self._services[domain] = {}
+        self._services[domain][service] = {
+            "func": service_func,
+            "schema": schema,
+        }
+
+    def async_remove(self, domain: str, service: str) -> None:
+        """Remove a registered service."""
+        if domain in self._services:
+            self._services[domain].pop(service, None)
+
+    async def async_call(
+        self,
+        domain: str,
+        service: str,
+        service_data: dict[str, Any] | None = None,
+        target: Any = None,
+        blocking: bool = True,
+    ) -> Any:
+        """Execute a service call."""
+        if not self.has_service(domain, service):
+            raise HomeAssistantError(f"Service {domain}.{service} not registered")
+        item = self._services[domain][service]
+        func = item["func"]
+        data = dict(service_data or {})
+        if target:
+            data["target"] = target
+        call = ServiceCall(domain=domain, service=service, data=data)
+        if inspect.iscoroutinefunction(func):
+            return await func(call)
+        res = func(call)
+        if inspect.isawaitable(res):
+            return await res
+        return res
 
 
 class ConfigEntries:
@@ -210,11 +384,22 @@ class ConfigEntries:
     def __init__(self) -> None:
         self.forwarded_setups: list[tuple[Any, list[Platform]]] = []
         self.unloaded_platforms: list[tuple[Any, list[Platform]]] = []
+        self._entries: dict[str, list[Any]] = {}
+
+    def async_entries(self, domain: str) -> list[Any]:
+        return self._entries.get(domain, [])
+
+    def async_add(self, entry: Any) -> None:
+        domain = getattr(entry, "domain", "weheat")
+        self._entries.setdefault(domain, []).append(entry)
 
     async def async_forward_entry_setups(
         self, entry: ConfigEntry, platforms: list[Platform]
     ) -> None:
         self.forwarded_setups.append((entry, platforms))
+        domain = getattr(entry, "domain", "weheat")
+        if entry not in self._entries.get(domain, []):
+            self._entries.setdefault(domain, []).append(entry)
 
     async def async_unload_platforms(
         self, entry: ConfigEntry, platforms: list[Platform]
@@ -231,6 +416,7 @@ class HomeAssistant:
 
         self.logger = logging.getLogger("homeassistant")
         self.config_entries = ConfigEntries()
+        self.services = ServiceRegistry()
 
 
 class LocalOAuth2ImplementationWithPkce:
@@ -395,6 +581,7 @@ def install_ha_stubs() -> None:
 
     ha_core = types.ModuleType("homeassistant.core")
     ha_core.HomeAssistant = HomeAssistant
+    ha_core.ServiceCall = ServiceCall
 
     ha_config_entries = types.ModuleType("homeassistant.config_entries")
     ha_config_entries.ConfigEntry = ConfigEntry
@@ -462,6 +649,26 @@ def install_ha_stubs() -> None:
     ha_components_diag = types.ModuleType("homeassistant.components.diagnostics")
     ha_components_diag.async_redact_data = async_redact_data
 
+    ha_components_select = types.ModuleType("homeassistant.components.select")
+    ha_components_select.SelectEntity = SelectEntity
+    ha_components_select.SelectEntityDescription = SelectEntityDescription
+
+    ha_components_switch = types.ModuleType("homeassistant.components.switch")
+    ha_components_switch.SwitchEntity = SwitchEntity
+    ha_components_switch.SwitchEntityDescription = SwitchEntityDescription
+
+    ha_components_time = types.ModuleType("homeassistant.components.time")
+    ha_components_time.TimeEntity = TimeEntity
+    ha_components_time.TimeEntityDescription = TimeEntityDescription
+
+    ha_components_button = types.ModuleType("homeassistant.components.button")
+    ha_components_button.ButtonEntity = ButtonEntity
+    ha_components_button.ButtonEntityDescription = ButtonEntityDescription
+
+    ha_components_number = types.ModuleType("homeassistant.components.number")
+    ha_components_number.NumberEntity = NumberEntity
+    ha_components_number.NumberEntityDescription = NumberEntityDescription
+
     sys.modules["homeassistant"] = ha
     sys.modules["homeassistant.const"] = ha_const
     sys.modules["homeassistant.core"] = ha_core
@@ -482,3 +689,8 @@ def install_ha_stubs() -> None:
     sys.modules["homeassistant.components.sensor"] = ha_components_sensor
     sys.modules["homeassistant.components.binary_sensor"] = ha_components_bs
     sys.modules["homeassistant.components.diagnostics"] = ha_components_diag
+    sys.modules["homeassistant.components.select"] = ha_components_select
+    sys.modules["homeassistant.components.switch"] = ha_components_switch
+    sys.modules["homeassistant.components.time"] = ha_components_time
+    sys.modules["homeassistant.components.button"] = ha_components_button
+    sys.modules["homeassistant.components.number"] = ha_components_number

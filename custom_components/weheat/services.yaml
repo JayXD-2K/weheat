@@ -1,0 +1,94 @@
+set_quiet_mode:
+  name: Set quiet mode
+  description: Set the performance or quiet mode preset for a Weheat heat pump.
+  target:
+    device:
+      integration: weheat
+    entity:
+      integration: weheat
+  fields:
+    mode:
+      name: Mode
+      description: The quiet mode preset to apply (Performance, Silent 1, Silent 2, Silent 3, Silent 4).
+      required: true
+      example: "Silent 2"
+      selector:
+        select:
+          options:
+            - label: Performance (Default)
+              value: "Performance"
+            - label: Silent 1
+              value: "Silent 1"
+            - label: Silent 2
+              value: "Silent 2"
+            - label: Silent 3
+              value: "Silent 3"
+            - label: Silent 4
+              value: "Silent 4"
+
+set_silent_schedule:
+  name: Set silent schedule
+  description: Configure the silent hours preset, active days of week, and daily start/stop quiet window.
+  target:
+    device:
+      integration: weheat
+    entity:
+      integration: weheat
+  fields:
+    preset:
+      name: Preset
+      description: Silent hours preset level to activate during the scheduled quiet window.
+      required: true
+      example: "Silent 2"
+      selector:
+        select:
+          options:
+            - label: "Off (Disable scheduled quiet hours)"
+              value: "Off"
+            - label: "Silent 1"
+              value: "Silent 1"
+            - label: "Silent 2"
+              value: "Silent 2"
+            - label: "Silent 3"
+              value: "Silent 3"
+            - label: "Silent 4"
+              value: "Silent 4"
+    days:
+      name: Days of the week
+      description: Days of the week to apply the schedule to (leave blank to apply to all 7 days).
+      required: false
+      example: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - Monday
+            - Tuesday
+            - Wednesday
+            - Thursday
+            - Friday
+            - Saturday
+            - Sunday
+    start_time:
+      name: Start time
+      description: Time when the silent hours period begins (e.g. 22:00).
+      required: true
+      example: "22:00"
+      selector:
+        time: {}
+    stop_time:
+      name: Stop time
+      description: Time when the silent hours period ends (e.g. 07:00).
+      required: true
+      example: "07:00"
+      selector:
+        time: {}
+
+trigger_legionella_prevention:
+  name: Trigger legionella prevention
+  description: Manually trigger a one-shot Legionella thermal disinfection cycle on the Weheat heat pump.
+  target:
+    device:
+      integration: weheat
+    entity:
+      integration: weheat

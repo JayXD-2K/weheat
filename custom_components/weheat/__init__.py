@@ -23,17 +23,25 @@ from .client import (
     WeheatClient,
     WeheatTimeoutError,
 )
-from .const import DEFAULT_API_BASE_URL, DEFAULT_PORTAL_BASE_URL
+from .const import DEFAULT_API_BASE_URL, DEFAULT_PORTAL_BASE_URL, DOMAIN
 from .coordinator import (
     WeheatConfigEntry,
     WeheatData,
     WeheatDataUpdateCoordinator,
     WeheatEnergyUpdateCoordinator,
+    WeheatSettingsUpdateCoordinator,
 )
+from .services import async_setup_services, async_unload_services
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.SENSOR,
+    Platform.SELECT,
+    Platform.SWITCH,
+    Platform.TIME,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bool:
@@ -89,6 +97,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
         energy_coordinator = WeheatEnergyUpdateCoordinator(
             hass, entry, session, pump_info, client=client
         )
+        settings_coordinator = WeheatSettingsUpdateCoordinator(
+            hass, entry, session, pump_info, client=client
+        )
 
         entry.runtime_data.append(
             WeheatData(
@@ -97,6 +108,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
                 heat_pump_info=pump_info,
                 data_coordinator=data_coordinator,
                 energy_coordinator=energy_coordinator,
+                settings_coordinator=settings_coordinator,
             )
         )
 
@@ -110,12 +122,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
                 data.energy_coordinator.async_config_entry_first_refresh()
                 for data in entry.runtime_data
             ],
+            *[
+                data.settings_coordinator.async_config_entry_first_refresh()
+                for data in entry.runtime_data
+                if data.settings_coordinator is not None
+            ],
         )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await async_setup_services(hass)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        remaining_entries = [
+            e
+            for e in getattr(hass.config_entries, "async_entries", lambda _: [])(DOMAIN)
+            if e.entry_id != entry.entry_id
+        ]
+        if not remaining_entries:
+            await async_unload_services(hass)
+    return unload_ok

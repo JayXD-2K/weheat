@@ -20,8 +20,15 @@ from .client import (
     WeheatClient,
     WeheatTimeoutError,
 )
-from .const import DOMAIN, ENERGY_UPDATE_INTERVAL, LOG_UPDATE_INTERVAL, LOGGER
+from .const import (
+    DOMAIN,
+    ENERGY_UPDATE_INTERVAL,
+    LOG_UPDATE_INTERVAL,
+    LOGGER,
+    SETTINGS_UPDATE_INTERVAL,
+)
 from .models import (
+    ControlBoardSettings,
     HeatPumpEnergy,
     HeatPumpInfo,
     HeatPumpLog,
@@ -185,6 +192,108 @@ class WeheatEnergyUpdateCoordinator(DataUpdateCoordinator[HeatPumpEnergy]):
             raise UpdateFailed(f"Error communicating with Weheat API: {err}") from err
 
 
+class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings]):
+    """Data update coordinator for control board and installation settings.
+
+    Polls /api/v1/installations/{installation_id}/settings every 5 minutes (300s)
+    and supports immediate on-demand refresh after control mutations.
+    """
+
+    config_entry: WeheatConfigEntry
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: WeheatConfigEntry,
+        session: OAuth2Session | None = None,
+        heat_pump_info: HeatPumpInfo | None = None,
+        client: WeheatClient | None = None,
+    ) -> None:
+        """Initialize the settings update coordinator.
+
+        Args:
+            hass: Home Assistant core instance.
+            config_entry: Configuration entry.
+            session: Optional OAuth2Session for token refresh.
+            heat_pump_info: Discovery metadata for this heat pump.
+            client: Optional WeheatClient instance (instantiated if not provided).
+        """
+        super().__init__(
+            hass,
+            logger=getattr(hass, "logger", None) or LOGGER,
+            name=f"{DOMAIN}_settings",
+            config_entry=config_entry,
+            update_interval=timedelta(seconds=SETTINGS_UPDATE_INTERVAL),
+        )
+        self.session = session
+        self.heat_pump_info = heat_pump_info
+        self.client = client or WeheatClient(session=async_get_clientsession(hass))
+
+    async def _async_update_data(self) -> ControlBoardSettings:
+        """Fetch control board and installation settings from the Weheat API.
+
+        Returns:
+            Populated ControlBoardSettings instance.
+
+        Raises:
+            ConfigEntryAuthFailed: If token renewal fails or server rejects auth.
+            UpdateFailed: If API or network connection errors occur.
+        """
+        token: str | None = None
+        if self.session is not None:
+            try:
+                await self.session.async_ensure_token_valid()
+                token = self.session.token.get(CONF_ACCESS_TOKEN)
+            except ClientResponseError as err:
+                if err.status in (400, 401, 403):
+                    raise ConfigEntryAuthFailed(
+                        "OAuth token invalid or expired"
+                    ) from err
+                raise UpdateFailed(f"Error refreshing OAuth token: {err}") from err
+            except Exception as err:
+                raise UpdateFailed(
+                    f"Failed to ensure valid OAuth token: {err}"
+                ) from err
+
+        if not self.heat_pump_info:
+            raise UpdateFailed("Heat pump information is missing from coordinator")
+
+        installation_id = self.heat_pump_info.installation_id
+        if not installation_id:
+            # Fallback: discover topology from portal
+            try:
+                topology = await self.client.async_get_installation_topology(
+                    token=token
+                )
+                for item in topology:
+                    hp_id = item.get("id") or item.get("heatPumpId")
+                    if hp_id == self.heat_pump_info.heatpump_id:
+                        installation_id = item.get("installationId")
+                        self.heat_pump_info.installation_id = installation_id
+                        break
+            except (
+                WeheatAuthError,
+                WeheatApiError,
+                WeheatTimeoutError,
+                ClientError,
+            ) as err:
+                LOGGER.warning("Could not resolve installation topology: %s", err)
+
+        if not installation_id:
+            raise UpdateFailed(
+                f"Missing installation ID for heat pump {self.heat_pump_info.heatpump_id}"
+            )
+
+        try:
+            return await self.client.async_get_installation_settings(
+                installation_id, token=token
+            )
+        except WeheatAuthError as err:
+            raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
+        except (WeheatApiError, WeheatTimeoutError, ClientError) as err:
+            raise UpdateFailed(f"Error communicating with Weheat API: {err}") from err
+
+
 @dataclass
 class WeheatData:
     """Data container holding coordinators and client for a single heat pump."""
@@ -192,5 +301,6 @@ class WeheatData:
     heat_pump_info: HeatPumpInfo
     data_coordinator: WeheatDataUpdateCoordinator
     energy_coordinator: WeheatEnergyUpdateCoordinator
+    settings_coordinator: WeheatSettingsUpdateCoordinator | None = None
     client: WeheatClient | None = None
     session: OAuth2Session | None = None

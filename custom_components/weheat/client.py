@@ -387,6 +387,9 @@ class WeheatClient:
             f"Control board ID could not be resolved for target '{target_id}'"
         )
 
+    # Alias for compatibility with services and tests
+    async_resolve_control_board_id = async_get_control_board_id
+
     async def async_get_latest_logs(
         self,
         uuid: str,

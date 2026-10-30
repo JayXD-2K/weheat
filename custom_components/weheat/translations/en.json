@@ -18,5 +18,135 @@
         "title": "Re-authenticate with Weheat"
       }
     }
+  },
+  "services": {
+    "set_quiet_mode": {
+      "name": "Set quiet mode",
+      "description": "Set the performance or quiet mode preset for a Weheat heat pump.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "The quiet mode preset to apply (Performance, Silent 1, Silent 2, Silent 3, Silent 4)."
+        }
+      }
+    },
+    "set_silent_schedule": {
+      "name": "Set silent schedule",
+      "description": "Configure the silent hours preset, active days of week, and daily start/stop quiet window.",
+      "fields": {
+        "preset": {
+          "name": "Preset",
+          "description": "Silent hours preset level to activate during the scheduled quiet window."
+        },
+        "days": {
+          "name": "Days of the week",
+          "description": "Days of the week to apply the schedule to (leave blank to apply to all 7 days)."
+        },
+        "start_time": {
+          "name": "Start time",
+          "description": "Time when the silent hours period begins (HH:MM)."
+        },
+        "stop_time": {
+          "name": "Stop time",
+          "description": "Time when the silent hours period ends (HH:MM)."
+        }
+      }
+    },
+    "trigger_legionella_prevention": {
+      "name": "Trigger legionella prevention",
+      "description": "Manually trigger a one-shot Legionella thermal disinfection cycle on the Weheat heat pump."
+    }
+  },
+  "entity": {
+    "select": {
+      "performance_mode_preset": {
+        "name": "Performance mode",
+        "state": {
+          "performance": "Performance",
+          "silent_1": "Silent 1",
+          "silent_2": "Silent 2",
+          "silent_3": "Silent 3",
+          "silent_4": "Silent 4"
+        }
+      },
+      "silent_hours_preset": {
+        "name": "Silent hours preset",
+        "state": {
+          "off": "Off",
+          "silent_1": "Silent 1",
+          "silent_2": "Silent 2",
+          "silent_3": "Silent 3",
+          "silent_4": "Silent 4"
+        }
+      }
+    },
+    "switch": {
+      "silent_hours_schedule_enabled": {
+        "name": "Silent hours schedule"
+      },
+      "legionella_prevention": {
+        "name": "Legionella prevention"
+      },
+      "dhw_boost": {
+        "name": "DHW boost"
+      }
+    },
+    "time": {
+      "monday_silent_hours_start": {
+        "name": "Monday silent hours start"
+      },
+      "monday_silent_hours_stop": {
+        "name": "Monday silent hours stop"
+      },
+      "tuesday_silent_hours_start": {
+        "name": "Tuesday silent hours start"
+      },
+      "tuesday_silent_hours_stop": {
+        "name": "Tuesday silent hours stop"
+      },
+      "wednesday_silent_hours_start": {
+        "name": "Wednesday silent hours start"
+      },
+      "wednesday_silent_hours_stop": {
+        "name": "Wednesday silent hours stop"
+      },
+      "thursday_silent_hours_start": {
+        "name": "Thursday silent hours start"
+      },
+      "thursday_silent_hours_stop": {
+        "name": "Thursday silent hours stop"
+      },
+      "friday_silent_hours_start": {
+        "name": "Friday silent hours start"
+      },
+      "friday_silent_hours_stop": {
+        "name": "Friday silent hours stop"
+      },
+      "saturday_silent_hours_start": {
+        "name": "Saturday silent hours start"
+      },
+      "saturday_silent_hours_stop": {
+        "name": "Saturday silent hours stop"
+      },
+      "sunday_silent_hours_start": {
+        "name": "Sunday silent hours start"
+      },
+      "sunday_silent_hours_stop": {
+        "name": "Sunday silent hours stop"
+      }
+    },
+    "button": {
+      "trigger_legionella_prevention": {
+        "name": "Trigger legionella prevention"
+      },
+      "skip_legionella_prevention": {
+        "name": "Skip legionella prevention"
+      }
+    },
+    "number": {
+      "dhw_target_temperature": {
+        "name": "DHW target temperature"
+      }
+    }
   }
 }

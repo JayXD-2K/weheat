@@ -64,6 +64,10 @@ async def test_setup_entry_success(
             "custom_components.weheat.coordinator.WeheatEnergyUpdateCoordinator.async_config_entry_first_refresh",
             new=AsyncMock(),
         ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatSettingsUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
     ):
         result = await async_setup_entry(hass, mock_config_entry)
 

@@ -13,6 +13,7 @@ LOGGER: logging.Logger = logging.getLogger(__package__)
 # Polling intervals (seconds)
 LOG_UPDATE_INTERVAL = 120
 ENERGY_UPDATE_INTERVAL = 1800
+SETTINGS_UPDATE_INTERVAL = 300
 
 # Suggested display precision
 DISPLAY_PRECISION_WATTS = 0
