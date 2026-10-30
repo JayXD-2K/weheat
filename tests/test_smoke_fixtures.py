@@ -22,6 +22,7 @@ FIXTURE_NAMES = [
     "token_response.json",
     "user_me.json",
     "heat_pumps.json",
+    "installations_fully_expanded.json",
     "latest_logs.json",
     "energy_total.json",
     "installation_settings_get.json",

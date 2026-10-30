@@ -14,22 +14,26 @@ import pytest
 from aioresponses import aioresponses
 
 # Ensure compatibility between aioresponses and aiohttp versions (>=3.12)
-# where ClientResponse.__init__ requires stream_writer
-_orig_client_response_init = aiohttp.client_reqrep.ClientResponse.__init__
-try:
-    import inspect
-    from unittest.mock import Mock
+# where ClientResponse.__init__ requires stream_writer (with idempotency guard)
+if not getattr(aiohttp.client_reqrep.ClientResponse, "_weheat_compat_patched", False):
+    _orig_client_response_init = aiohttp.client_reqrep.ClientResponse.__init__
+    try:
+        import inspect
+        from unittest.mock import Mock
 
-    if "stream_writer" in inspect.signature(_orig_client_response_init).parameters:
+        if "stream_writer" in inspect.signature(_orig_client_response_init).parameters:
 
-        def _compat_client_response_init(self: Any, *args: Any, **kwargs: Any) -> None:
-            if "stream_writer" not in kwargs or kwargs["stream_writer"] is None:
-                kwargs["stream_writer"] = Mock(output_size=0)
-            _orig_client_response_init(self, *args, **kwargs)
+            def _compat_client_response_init(
+                self: Any, *args: Any, **kwargs: Any
+            ) -> None:
+                if "stream_writer" not in kwargs or kwargs["stream_writer"] is None:
+                    kwargs["stream_writer"] = Mock(output_size=0)
+                _orig_client_response_init(self, *args, **kwargs)
 
-        aiohttp.client_reqrep.ClientResponse.__init__ = _compat_client_response_init
-except Exception:  # noqa: S110
-    pass
+            aiohttp.client_reqrep.ClientResponse.__init__ = _compat_client_response_init
+            aiohttp.client_reqrep.ClientResponse._weheat_compat_patched = True
+    except Exception:  # noqa: S110
+        pass
 
 # Fixture directory relative to tests/
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -192,7 +196,7 @@ def setup_mock_api(mock_aioresponse: aioresponses) -> aioresponses:
     )
     mock_aioresponse.get(
         re.compile(r"^https://api\.weheat\.nl/api/v1/installations/fully-expanded.*$"),
-        payload=load_fixture("heat_pumps.json"),
+        payload=load_fixture("installations_fully_expanded.json"),
         status=200,
     )
 

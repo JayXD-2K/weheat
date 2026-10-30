@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "totalCount": 3,
+    "pageSize": 1000,
+    "currentPage": 1,
+    "totalPages": 1
+  },
+  "data": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "heatPumpId": "00000000-0000-0000-0000-000000000001",
+      "controlBoardId": "cb-00000000-0000-0000-0000-000000000001",
+      "installationId": "00000000-0000-0000-0000-000000000101",
+      "indoorUnitId": "iu-00000000-0000-0000-0000-000000000001",
+      "name": "Blackbird Outdoor",
+      "model": 0,
+      "dhwType": 1,
+      "boilerType": 2,
+      "status": 70,
+      "commissionedAt": "2024-02-01T10:00:00.000Z",
+      "serialNumber": "WH-BB80-MOCK-001",
+      "partNumber": "WH-BB-80",
+      "state": 3,
+      "firmwareVersion": "2.14.0"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "heatPumpId": "00000000-0000-0000-0000-000000000002",
+      "controlBoardId": "cb-00000000-0000-0000-0000-000000000002",
+      "installationId": "00000000-0000-0000-0000-000000000102",
+      "indoorUnitId": "iu-00000000-0000-0000-0000-000000000002",
+      "name": "Sparrow Garden",
+      "model": 2,
+      "dhwType": 0,
+      "boilerType": 0,
+      "status": 40,
+      "commissionedAt": "2024-03-15T14:30:00.000Z",
+      "serialNumber": "WH-SP60-MOCK-002",
+      "partNumber": "WH-SP-60",
+      "state": 3,
+      "firmwareVersion": "2.14.0"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "heatPumpId": "00000000-0000-0000-0000-000000000003",
+      "controlBoardId": "cb-00000000-0000-0000-0000-000000000003",
+      "installationId": "00000000-0000-0000-0000-000000000103",
+      "indoorUnitId": "iu-00000000-0000-0000-0000-000000000003",
+      "name": "Flint Compact",
+      "model": 5,
+      "dhwType": 1,
+      "boilerType": 0,
+      "status": 70,
+      "commissionedAt": "2024-05-20T08:15:00.000Z",
+      "serialNumber": "WH-FL40-MOCK-003",
+      "partNumber": "WH-FL-40",
+      "state": 3,
+      "firmwareVersion": "2.14.0"
+    }
+  ]
+}
