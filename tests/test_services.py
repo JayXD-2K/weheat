@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from aiohttp import ClientError, ClientResponseError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ACCESS_TOKEN, CONF_TOKEN
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -456,3 +457,100 @@ async def test_target_resolution_multi_pumps_missing_target_raises(
         await async_handle_set_quiet_mode(hass_with_two_pumps, call)
 
     assert "Multiple Weheat heat pumps found" in str(exc_info.value)
+
+
+# -----------------------------------------------------------------------------
+# Service Auth Exception & Network Error Translation Tests
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_quiet_mode_oauth_token_refresh_client_response_error(
+    hass_with_single_pump: HomeAssistant,
+    mock_session: MagicMock,
+) -> None:
+    """Verify HTTP 401 token refresh failure in set_quiet_mode raises HomeAssistantError."""
+    mock_session.async_ensure_token_valid = AsyncMock(
+        side_effect=ClientResponseError(
+            request_info=MagicMock(), history=(), status=401, message="Unauthorized"
+        )
+    )
+    call = ServiceCall(DOMAIN, SERVICE_SET_QUIET_MODE, {"mode": "Performance"})
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await async_handle_set_quiet_mode(hass_with_single_pump, call)
+
+    assert "Authentication failed" in str(exc_info.value)
+    assert "401" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_set_quiet_mode_oauth_token_refresh_network_client_error(
+    hass_with_single_pump: HomeAssistant,
+    mock_session: MagicMock,
+) -> None:
+    """Verify network connection error during token refresh raises HomeAssistantError."""
+    mock_session.async_ensure_token_valid = AsyncMock(
+        side_effect=ClientError("Cannot connect to Keycloak host")
+    )
+    call = ServiceCall(DOMAIN, SERVICE_SET_QUIET_MODE, {"mode": 0})
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await async_handle_set_quiet_mode(hass_with_single_pump, call)
+
+    assert "Network error refreshing OAuth token" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_set_silent_schedule_oauth_token_refresh_client_response_error(
+    hass_with_single_pump: HomeAssistant,
+    mock_session: MagicMock,
+) -> None:
+    """Verify HTTP 403 token refresh failure in set_silent_schedule raises HomeAssistantError."""
+    mock_session.async_ensure_token_valid = AsyncMock(
+        side_effect=ClientResponseError(
+            request_info=MagicMock(), history=(), status=403, message="Forbidden"
+        )
+    )
+    call = ServiceCall(
+        DOMAIN,
+        SERVICE_SET_SILENT_SCHEDULE,
+        {"preset": 1, "start_time": "22:00", "stop_time": "07:00"},
+    )
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await async_handle_set_silent_schedule(hass_with_single_pump, call)
+
+    assert "Authentication failed" in str(exc_info.value)
+    assert "403" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_trigger_legionella_oauth_token_refresh_client_error(
+    hass_with_single_pump: HomeAssistant,
+    mock_session: MagicMock,
+) -> None:
+    """Verify network error during token refresh in trigger_legionella raises HomeAssistantError."""
+    mock_session.async_ensure_token_valid = AsyncMock(
+        side_effect=ClientError("Connection refused by auth server")
+    )
+    call = ServiceCall(DOMAIN, SERVICE_TRIGGER_LEGIONELLA, {})
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await async_handle_trigger_legionella(hass_with_single_pump, call)
+
+    assert "Network error refreshing OAuth token" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_service_control_board_resolution_client_error(
+    hass_with_single_pump: HomeAssistant,
+    mock_weheat_client: MagicMock,
+    mock_heat_pump_info_1: HeatPumpInfo,
+) -> None:
+    """Verify network error resolving control board ID raises HomeAssistantError."""
+    mock_heat_pump_info_1.control_board_id = ""  # Trigger resolution
+    mock_weheat_client.async_get_control_board_id = AsyncMock(
+        side_effect=ClientError("DNS lookup failed for api.weheat.nl")
+    )
+    call = ServiceCall(DOMAIN, SERVICE_SET_QUIET_MODE, {"mode": 0})
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await async_handle_set_quiet_mode(hass_with_single_pump, call)
+
+    assert "Failed to resolve control board ID" in str(exc_info.value)

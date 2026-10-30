@@ -13,6 +13,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+from aiohttp import ClientError, ClientResponseError
 from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
@@ -119,8 +120,10 @@ def _resolve_target_data(hass: HomeAssistant, call: ServiceCall) -> list[WeheatD
     # Check nested target dict if present
     target_dict = call.data.get("target")
     if isinstance(target_dict, dict):
-        device_id = device_id or target_dict.get("device_id")
-        entity_id = entity_id or target_dict.get("entity_id")
+        if device_id is None:
+            device_id = target_dict.get("device_id")
+        if entity_id is None:
+            entity_id = target_dict.get("entity_id")
 
     # If single target criterion specified, filter
     matched: list[WeheatData] = []
@@ -147,15 +150,25 @@ def _resolve_target_data(hass: HomeAssistant, call: ServiceCall) -> list[WeheatD
             )
         return matched
 
-    if device_id:
-        dev_ids = [device_id] if isinstance(device_id, str) else list(device_id)
+    if device_id is not None:
+        if isinstance(device_id, str):
+            dev_ids = [device_id]
+        elif isinstance(device_id, (list, tuple, set)):
+            dev_ids = list(device_id)
+        else:
+            raise HomeAssistantError(
+                f"Invalid device_id format: '{device_id}'. Expected string or list of strings."
+            )
+        if not dev_ids:
+            raise HomeAssistantError("No device_id specified in target list")
+
         # Device registry resolution if available
         try:
             from homeassistant.helpers import device_registry as dr
 
             dev_reg = dr.async_get(hass)
             for d_id in dev_ids:
-                device_entry = dev_reg.async_get(d_id)
+                device_entry = dev_reg.async_get(str(d_id))
                 if device_entry:
                     for ident in device_entry.identifiers:
                         if len(ident) == 2 and ident[0] == DOMAIN:
@@ -174,22 +187,53 @@ def _resolve_target_data(hass: HomeAssistant, call: ServiceCall) -> list[WeheatD
         if not matched:
             for d_id in dev_ids:
                 matched.extend(
-                    [d for d in all_data if d.heat_pump_info.heatpump_id == d_id]
+                    [d for d in all_data if d.heat_pump_info.heatpump_id == str(d_id)]
                 )
 
         if matched:
             return list({id(d): d for d in matched}.values())
         raise HomeAssistantError(f"No Weheat heat pump matched device ID '{device_id}'")
 
-    if entity_id:
-        ent_ids = [entity_id] if isinstance(entity_id, str) else list(entity_id)
-        # Try resolving via entity unique_id or name
+    if entity_id is not None:
+        if isinstance(entity_id, str):
+            ent_ids = [entity_id]
+        elif isinstance(entity_id, (list, tuple, set)):
+            ent_ids = list(entity_id)
+        else:
+            raise HomeAssistantError(
+                f"Invalid entity_id format: '{entity_id}'. Expected string or list of strings."
+            )
+        if not ent_ids:
+            raise HomeAssistantError("No entity_id specified in target list")
+
+        # Entity registry resolution if available
+        try:
+            from homeassistant.helpers import entity_registry as er
+
+            ent_reg = er.async_get(hass)
+            for e_id in ent_ids:
+                entity_entry = ent_reg.async_get(str(e_id))
+                if (
+                    entity_entry
+                    and entity_entry.platform == DOMAIN
+                    and entity_entry.unique_id
+                ):
+                    for d in all_data:
+                        if d.heat_pump_info.heatpump_id in entity_entry.unique_id:
+                            matched.append(d)
+        except Exception:  # noqa: S110
+            pass
+
+        # Fallback matching entity_id substring to heatpump_id
         for e_id in ent_ids:
+            e_id_str = str(e_id)
             for d in all_data:
-                if d.heat_pump_info.heatpump_id in e_id:
+                if d.heat_pump_info.heatpump_id in e_id_str:
                     matched.append(d)
+
         if matched:
             return list({id(d): d for d in matched}.values())
+        raise HomeAssistantError(f"No Weheat heat pump matched entity ID '{entity_id}'")
 
     # If no target specified and exactly one heat pump is configured, use it
     if len(all_data) == 1:
@@ -204,10 +248,33 @@ def _resolve_target_data(hass: HomeAssistant, call: ServiceCall) -> list[WeheatD
 async def _async_get_token(data: WeheatData) -> str:
     """Ensure OAuth token is valid and return access token string."""
     if data.session is not None:
-        await data.session.async_ensure_token_valid()
-        token = data.session.token.get(CONF_ACCESS_TOKEN)
+        try:
+            await data.session.async_ensure_token_valid()
+        except ClientResponseError as err:
+            raise HomeAssistantError(
+                f"Authentication failed for heat pump {data.heat_pump_info.heatpump_id}: "
+                f"OAuth token refresh rejected with HTTP {err.status} ({err.message})"
+            ) from err
+        except (ClientError, TimeoutError) as err:
+            raise HomeAssistantError(
+                f"Authentication failed for heat pump {data.heat_pump_info.heatpump_id}: "
+                f"Network error refreshing OAuth token: {err}"
+            ) from err
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Authentication failed for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+
+        token = (
+            data.session.token.get(CONF_ACCESS_TOKEN)
+            if isinstance(data.session.token, dict)
+            else None
+        )
         if token:
             return str(token)
+
     raise HomeAssistantError(
         f"Authentication token unavailable for heat pump {data.heat_pump_info.heatpump_id}"
     )
@@ -233,6 +300,22 @@ async def _async_get_control_board_id(data: WeheatData, token: str) -> str:
     except WeheatError as err:
         raise HomeAssistantError(
             f"Failed to resolve control board ID for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+        ) from err
+    except ClientResponseError as err:
+        raise HomeAssistantError(
+            f"Failed to resolve control board ID for heat pump {data.heat_pump_info.heatpump_id}: "
+            f"API rejected request with HTTP {err.status} ({err.message})"
+        ) from err
+    except (ClientError, TimeoutError) as err:
+        raise HomeAssistantError(
+            f"Failed to resolve control board ID for heat pump {data.heat_pump_info.heatpump_id}: "
+            f"Network error: {err}"
+        ) from err
+    except HomeAssistantError:
+        raise
+    except Exception as err:
+        raise HomeAssistantError(
+            f"Unexpected error resolving control board ID for heat pump {data.heat_pump_info.heatpump_id}: {err}"
         ) from err
 
 
@@ -304,6 +387,11 @@ async def async_handle_set_quiet_mode(hass: HomeAssistant, call: ServiceCall) ->
     if raw_mode is None:
         raise HomeAssistantError("Missing required parameter: 'mode'")
 
+    if isinstance(raw_mode, bool) or not isinstance(raw_mode, (str, int)):
+        raise HomeAssistantError(
+            f"Invalid quiet mode '{raw_mode}'. Expected string or integer."
+        )
+
     # Normalize mode
     norm_key = str(raw_mode).strip().lower() if isinstance(raw_mode, str) else raw_mode
     if norm_key not in QUIET_MODE_MAPPING:
@@ -319,10 +407,10 @@ async def async_handle_set_quiet_mode(hass: HomeAssistant, call: ServiceCall) ->
         if client is None:
             raise HomeAssistantError("Weheat API client is unavailable")
 
-        token = await _async_get_token(data)
-        cb_id = await _async_get_control_board_id(data, token)
-
         try:
+            token = await _async_get_token(data)
+            cb_id = await _async_get_control_board_id(data, token)
+
             req_id = await client.async_set_performance_mode(
                 control_board_id=cb_id,
                 token=token,
@@ -338,9 +426,24 @@ async def async_handle_set_quiet_mode(hass: HomeAssistant, call: ServiceCall) ->
             await data.data_coordinator.async_request_refresh()
             if hasattr(data, "settings_coordinator") and data.settings_coordinator:
                 await data.settings_coordinator.async_request_refresh()
+        except HomeAssistantError:
+            raise
         except WeheatError as err:
             raise HomeAssistantError(
                 f"Failed to set quiet mode for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except ClientResponseError as err:
+            raise HomeAssistantError(
+                f"Communication error setting quiet mode for heat pump {data.heat_pump_info.heatpump_id}: "
+                f"HTTP {err.status} ({err.message})"
+            ) from err
+        except (ClientError, TimeoutError) as err:
+            raise HomeAssistantError(
+                f"Communication error setting quiet mode for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unexpected error setting quiet mode for heat pump {data.heat_pump_info.heatpump_id}: {err}"
             ) from err
 
 
@@ -351,6 +454,11 @@ async def async_handle_set_silent_schedule(
     raw_preset = call.data.get("preset")
     if raw_preset is None:
         raise HomeAssistantError("Missing required parameter: 'preset'")
+
+    if isinstance(raw_preset, bool) or not isinstance(raw_preset, (str, int)):
+        raise HomeAssistantError(
+            f"Invalid silent hours preset '{raw_preset}'. Expected string or integer."
+        )
 
     norm_preset_key = (
         str(raw_preset).strip().lower() if isinstance(raw_preset, str) else raw_preset
@@ -389,10 +497,10 @@ async def async_handle_set_silent_schedule(
         if client is None:
             raise HomeAssistantError("Weheat API client is unavailable")
 
-        token = await _async_get_token(data)
-        cb_id = await _async_get_control_board_id(data, token)
-
         try:
+            token = await _async_get_token(data)
+            cb_id = await _async_get_control_board_id(data, token)
+
             req_id = await client.async_set_silent_hours_schedule(
                 control_board_id=cb_id,
                 token=token,
@@ -407,9 +515,24 @@ async def async_handle_set_silent_schedule(
             await data.data_coordinator.async_request_refresh()
             if hasattr(data, "settings_coordinator") and data.settings_coordinator:
                 await data.settings_coordinator.async_request_refresh()
+        except HomeAssistantError:
+            raise
         except WeheatError as err:
             raise HomeAssistantError(
                 f"Failed to set silent schedule for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except ClientResponseError as err:
+            raise HomeAssistantError(
+                f"Communication error setting silent schedule for heat pump {data.heat_pump_info.heatpump_id}: "
+                f"HTTP {err.status} ({err.message})"
+            ) from err
+        except (ClientError, TimeoutError) as err:
+            raise HomeAssistantError(
+                f"Communication error setting silent schedule for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unexpected error setting silent schedule for heat pump {data.heat_pump_info.heatpump_id}: {err}"
             ) from err
 
 
@@ -424,10 +547,10 @@ async def async_handle_trigger_legionella(
         if client is None:
             raise HomeAssistantError("Weheat API client is unavailable")
 
-        token = await _async_get_token(data)
-        cb_id = await _async_get_control_board_id(data, token)
-
         try:
+            token = await _async_get_token(data)
+            cb_id = await _async_get_control_board_id(data, token)
+
             success = await client.async_trigger_legionella_prevention(
                 control_board_id=cb_id,
                 token=token,
@@ -437,9 +560,24 @@ async def async_handle_trigger_legionella(
                     f"Legionella prevention trigger was not acknowledged by heat pump {data.heat_pump_info.heatpump_id}"
                 )
             await data.data_coordinator.async_request_refresh()
+        except HomeAssistantError:
+            raise
         except WeheatError as err:
             raise HomeAssistantError(
                 f"Failed to trigger Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except ClientResponseError as err:
+            raise HomeAssistantError(
+                f"Communication error triggering Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: "
+                f"HTTP {err.status} ({err.message})"
+            ) from err
+        except (ClientError, TimeoutError) as err:
+            raise HomeAssistantError(
+                f"Communication error triggering Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unexpected error triggering Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: {err}"
             ) from err
 
 
