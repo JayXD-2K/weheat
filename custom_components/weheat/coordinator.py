@@ -266,10 +266,21 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
                     token=token
                 )
                 for item in topology:
-                    hp_id = item.get("id") or item.get("heatPumpId")
+                    hp_nested = item.get("heatPump")
+                    hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
+                    hp_id = (
+                        item.get("heatPumpId")
+                        or hp_dict.get("id")
+                        or item.get("id")
+                    )
                     if hp_id == self.heat_pump_info.heatpump_id:
-                        installation_id = item.get("installationId")
+                        installation_id = item.get("installationId") or item.get("id")
                         self.heat_pump_info.installation_id = installation_id
+                        cb_id = item.get("controlBoardId") or hp_dict.get(
+                            "controlBoardId"
+                        )
+                        if cb_id and not self.heat_pump_info.control_board_id:
+                            self.heat_pump_info.control_board_id = str(cb_id)
                         break
             except (
                 WeheatAuthError,

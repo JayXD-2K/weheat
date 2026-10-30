@@ -194,7 +194,9 @@ def setup_mock_api(mock_aioresponse: aioresponses) -> aioresponses:
 
     # Active heat pumps discovery
     mock_aioresponse.get(
-        re.compile(r"^https://api\.weheat\.nl/third_party/api/v1/heat_pumps.*$"),
+        re.compile(
+            r"^https://api\.weheat\.nl/third_party/api/v1/heat[-_]pumps(\?.*)?$"
+        ),
         payload=load_fixture("heat_pumps.json"),
         status=200,
     )

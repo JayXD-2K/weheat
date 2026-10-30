@@ -137,7 +137,7 @@ async def test_auth_error_across_all_endpoints(
         ("GET", f"{API_BASE_URL}/api/v1/users/me", client.async_get_user_profile()),
         (
             "GET",
-            f"{API_BASE_URL}/api/v1/heat_pumps?limit=1000&page=1&state=3",
+            f"{API_BASE_URL}/api/v1/heat-pumps?limit=1000&page=1&state=3",
             client.async_get_heat_pumps(),
         ),
         (

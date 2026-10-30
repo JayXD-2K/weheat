@@ -152,7 +152,7 @@ class TestClientAdversarialBranches:
 
         # 1. Bare list
         mock_aioresponse.get(
-            f"{API_BASE_URL}/api/v1/heat_pumps?limit=1000&page=1&state=3",
+            f"{API_BASE_URL}/api/v1/heat-pumps?limit=1000&page=1&state=3",
             status=200,
             payload=[
                 {
@@ -173,7 +173,7 @@ class TestClientAdversarialBranches:
 
         # 2. Unexpected non-list/non-data dict
         mock_aioresponse.get(
-            f"{API_BASE_URL}/api/v1/heat_pumps?limit=1000&page=1&state=3",
+            f"{API_BASE_URL}/api/v1/heat-pumps?limit=1000&page=1&state=3",
             status=200,
             payload="not a dict or list",
         )

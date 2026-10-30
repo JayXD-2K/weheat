@@ -39,7 +39,7 @@ OAUTH2_SCOPES = ["openid", "offline_access"]
 
 # API Endpoints
 ENDPOINT_USER_ME = "/api/v1/users/me"
-ENDPOINT_HEAT_PUMPS = "/api/v1/heat_pumps"
+ENDPOINT_HEAT_PUMPS = "/api/v1/heat-pumps"
 ENDPOINT_HEAT_PUMP_DETAILS = "/api/v1/heat-pumps/{uuid}"
 ENDPOINT_HEAT_PUMP_LOGS_LATEST = "/api/v1/heat-pumps/{uuid}/logs/latest"
 ENDPOINT_ENERGY_TOTAL = "/api/v1/energy-logs/{uuid}/total"

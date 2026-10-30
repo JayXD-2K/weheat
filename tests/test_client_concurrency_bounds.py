@@ -56,7 +56,7 @@ async def test_rapid_concurrent_requests_shared_session(
         repeat=True,
     )
     mock_aioresponse.get(
-        f"{API_BASE_URL}/api/v1/heat_pumps?limit=1000&page=1&state=3",
+        f"{API_BASE_URL}/api/v1/heat-pumps?limit=1000&page=1&state=3",
         payload=load_fixture("heat_pumps.json"),
         repeat=True,
     )

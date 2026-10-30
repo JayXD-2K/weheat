@@ -259,7 +259,7 @@ class WeheatClient:
         Returns:
             List of HeatPumpInfo dataclass instances.
         """
-        url = f"{self._base_url}/api/v1/heat_pumps"
+        url = f"{self._base_url}/api/v1/heat-pumps"
         params = {"state": state, "page": 1, "limit": 1000}
         data = await self._request("GET", url, token=token, params=params)
 
@@ -329,11 +329,22 @@ class WeheatClient:
             items = []
 
         for item in items:
-            cb_id = item.get("controlBoardId")
+            hp_nested = item.get("heatPump")
+            hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
+            cb_id = item.get("controlBoardId") or hp_dict.get("controlBoardId")
+            hp_id = item.get("heatPumpId") or hp_dict.get("id") or item.get("id")
+            inst_id = item.get("installationId") or (
+                item.get("id") if hp_dict or item.get("id") != hp_id else None
+            )
+            if cb_id and "controlBoardId" not in item:
+                item["controlBoardId"] = cb_id
+            if hp_id and "heatPumpId" not in item:
+                item["heatPumpId"] = hp_id
+            if inst_id and "installationId" not in item:
+                item["installationId"] = inst_id
+
             if not cb_id:
                 continue
-            hp_id = item.get("id") or item.get("heatPumpId")
-            inst_id = item.get("installationId")
 
             if hp_id:
                 self._control_board_cache[str(hp_id)] = str(cb_id)
