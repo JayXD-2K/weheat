@@ -1,0 +1,22 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Account is already configured",
+      "missing_configuration": "OAuth2 configuration is missing",
+      "oauth_failed": "Failed to authenticate or retrieve user profile",
+      "wrong_account": "You can only reauthenticate this account with the same user."
+    },
+    "create_entry": {
+      "default": "Successfully authenticated with Weheat."
+    },
+    "step": {
+      "pick_implementation": {
+        "title": "Choose authentication method"
+      },
+      "reauth_confirm": {
+        "description": "You need to re-authenticate with Weheat to continue.",
+        "title": "Re-authenticate with Weheat"
+      }
+    }
+  }
+}

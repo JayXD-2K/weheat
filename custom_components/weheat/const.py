@@ -2,7 +2,23 @@
 
 from __future__ import annotations
 
+import logging
+
 DOMAIN = "weheat"
+MANUFACTURER = "Weheat"
+ENTRY_TITLE = "Weheat cloud"
+
+LOGGER: logging.Logger = logging.getLogger(__package__)
+
+# Polling intervals (seconds)
+LOG_UPDATE_INTERVAL = 120
+ENERGY_UPDATE_INTERVAL = 1800
+
+# Suggested display precision
+DISPLAY_PRECISION_WATTS = 0
+DISPLAY_PRECISION_COP = 1
+DISPLAY_PRECISION_WATER_TEMP = 1
+DISPLAY_PRECISION_FLOW = 1
 
 # API Base URLs
 DEFAULT_API_BASE_URL = "https://api.weheat.nl/third_party"
@@ -11,10 +27,14 @@ DEFAULT_AUTH_BASE_URL = "https://auth.weheat.nl"
 DEFAULT_TIMEOUT_SECONDS = 15.0
 
 # Keycloak / OAuth2 configuration
-OAUTH2_AUTHORIZE = "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/auth"
-OAUTH2_TOKEN = "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/token"
+OAUTH2_AUTHORIZE = (
+    "https://auth.weheat.nl/auth/realms/Weheat/protocol/openid-connect/auth/"
+)
+OAUTH2_TOKEN = (
+    "https://auth.weheat.nl/auth/realms/Weheat/protocol/openid-connect/token/"
+)
 OAUTH2_CLIENT_ID = "weheat-portal"
-OAUTH2_SCOPES = ["openid", "email", "profile"]
+OAUTH2_SCOPES = ["openid", "offline_access"]
 
 # API Endpoints
 ENDPOINT_USER_ME = "/api/v1/users/me"

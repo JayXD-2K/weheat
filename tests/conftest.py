@@ -13,6 +13,10 @@ import aiohttp.client_reqrep
 import pytest
 from aioresponses import aioresponses
 
+from tests.ha_compat import install_ha_stubs
+
+install_ha_stubs()
+
 # Ensure compatibility between aioresponses and aiohttp versions (>=3.12)
 # where ClientResponse.__init__ requires stream_writer (with idempotency guard)
 if not getattr(aiohttp.client_reqrep.ClientResponse, "_weheat_compat_patched", False):

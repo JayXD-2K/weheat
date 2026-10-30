@@ -286,11 +286,35 @@ class HeatPumpInfo:
         )
 
 
+class CompressorPercentage(int):
+    """Integer that can also be called as a method for backward compatibility."""
+
+    def __new__(
+        cls,
+        value: int,
+        rpm: float | None = None,
+        nominal_rpm: int = 4500,
+    ) -> CompressorPercentage:
+        obj = super().__new__(cls, value)
+        obj._rpm = rpm
+        obj._nominal_rpm = nominal_rpm
+        return obj
+
+    def __call__(self, nominal_rpm: int | None = None) -> int | None:
+        if self._rpm is None:
+            return None
+        target = nominal_rpm if nominal_rpm is not None else self._nominal_rpm
+        if target <= 0:
+            return None
+        return int((100.0 / target) * self._rpm)
+
+
 @dataclass
 class HeatPumpLog:
     """Strongly typed real-time telemetry snapshot (30+ metrics)."""
 
     heat_pump_id: str
+    nominal_rpm: int = 4500
     timestamp: str | None = None
     is_online: bool = True
     state: HeatPumpState | None = None
@@ -398,13 +422,20 @@ class HeatPumpLog:
         """Compressor RPM as a float matching Core sensor expectations."""
         return float(self.rpm) if self.rpm is not None else None
 
-    def compressor_percentage(self, nominal_rpm: int = 4500) -> int | None:
+    @property
+    def compressor_percentage(self) -> Any:
         """Calculate compressor speed as percentage of nominal power."""
-        if self.rpm is None or nominal_rpm <= 0:
+        if self.rpm is None or self.nominal_rpm <= 0:
             return None
-        return int((100.0 / nominal_rpm) * self.rpm)
+        val = int((100.0 / self.nominal_rpm) * self.rpm)
+        return CompressorPercentage(val, rpm=self.rpm, nominal_rpm=self.nominal_rpm)
 
     # Core Sensor Property Mappings
+    @property
+    def heat_pump_state(self) -> HeatPumpState | None:
+        """Operating state enum matching HA Core sensor lambda."""
+        return self.state
+
     @property
     def water_inlet_temperature(self) -> float | None:
         return self.t_water_in
@@ -418,7 +449,17 @@ class HeatPumpLog:
         return self.t_water_house_in
 
     @property
+    def water_house_in_temperature(self) -> float | None:
+        """Alias for t_water_house_in matching HA Core sensor lambda."""
+        return self.t_water_house_in
+
+    @property
     def outside_temperature(self) -> float | None:
+        return self.t_air_in
+
+    @property
+    def air_inlet_temperature(self) -> float | None:
+        """Alias for t_air_in matching HA Core sensor lambda."""
         return self.t_air_in
 
     @property
