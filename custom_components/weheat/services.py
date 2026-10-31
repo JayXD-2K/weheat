@@ -418,7 +418,11 @@ async def async_handle_set_quiet_mode(hass: HomeAssistant, call: ServiceCall) ->
             data.settings_coordinator, "data", None
         )
         if settings is not None:
-            raw_silent = getattr(settings, "silent_hours_scheduled_preset", 0)
+            raw_silent = getattr(
+                settings,
+                "silent_hours_preset",
+                getattr(settings, "silent_hours_scheduled_preset", 0),
+            )
             if isinstance(raw_silent, int):
                 current_silent = raw_silent
 
@@ -571,32 +575,39 @@ async def async_handle_set_silent_schedule(
             ):
                 sched_fields = {}
                 for day in DAYS_OF_WEEK:
+                    sched = (
+                        settings.schedules.get(day)
+                        if hasattr(settings, "schedules")
+                        and isinstance(settings.schedules, dict)
+                        else None
+                    )
                     sched_fields[f"silent_hours_{day.lower()}_start"] = (
                         schedule_dict.get(
                             f"SilentHours{day}Start",
-                            getattr(settings, f"silent_hours_{day.lower()}_start", 22),
+                            sched.start_hour if sched else 19,
                         )
                     )
                     sched_fields[f"silent_minutes_{day.lower()}_start"] = (
                         schedule_dict.get(
                             f"SilentMinutes{day}Start",
-                            getattr(settings, f"silent_minutes_{day.lower()}_start", 0),
+                            sched.start_minute if sched else 0,
                         )
                     )
                     sched_fields[f"silent_hours_{day.lower()}_stop"] = (
                         schedule_dict.get(
                             f"SilentHours{day}Stop",
-                            getattr(settings, f"silent_hours_{day.lower()}_stop", 7),
+                            sched.stop_hour if sched else 7,
                         )
                     )
                     sched_fields[f"silent_minutes_{day.lower()}_stop"] = (
                         schedule_dict.get(
                             f"SilentMinutes{day}Stop",
-                            getattr(settings, f"silent_minutes_{day.lower()}_stop", 0),
+                            sched.stop_minute if sched else 0,
                         )
                     )
                 payload = settings.build_bundled_silent_schedule_payload(
                     silent_hours_preset=preset,
+                    day_updates=schedule_dict,
                     **sched_fields,
                 )
                 req_id = await client.async_patch_control_board_settings(

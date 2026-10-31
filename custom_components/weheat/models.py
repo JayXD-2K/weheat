@@ -898,6 +898,15 @@ class ControlBoardSettings:
     schedules: dict[str, DailySilentSchedule] = field(default_factory=dict)
     raw_settings: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def silent_hours_scheduled_preset(self) -> int:
+        """Alias for silent_hours_preset to match API naming and legacy callers."""
+        return self.silent_hours_preset
+
+    @silent_hours_scheduled_preset.setter
+    def silent_hours_scheduled_preset(self, value: int) -> None:
+        self.silent_hours_preset = int(value)
+
     @classmethod
     def from_api_dict(cls, data: dict[str, Any] | None) -> ControlBoardSettings:
         """Parse settings from /api/v1/installations/{id}/settings JSON dict.
@@ -1015,11 +1024,33 @@ class ControlBoardSettings:
                 sched.stop_minute if sched else 0
             )
 
-        if day_updates:
-            for k, v in day_updates.items():
-                norm_k = k[0].upper() + k[1:] if k.startswith("silent") else k
+        merged_updates: dict[str, Any] = dict(day_updates) if day_updates else {}
+        if kwargs:
+            for k, v in kwargs.items():
+                if v is not None:
+                    merged_updates[k] = v
+
+        if merged_updates:
+            for k, v in merged_updates.items():
+                if v is None:
+                    continue
+                if "_" in k:
+                    norm_k = "".join(part.capitalize() for part in k.split("_"))
+                elif k.startswith("silent") or k.startswith("performance"):
+                    norm_k = k[0].upper() + k[1:]
+                else:
+                    norm_k = k
+
                 if norm_k in payload_settings:
-                    payload_settings[norm_k] = int(v)
+                    if norm_k == "PerformanceModePreset" and perf_val is not None:
+                        continue
+                    if (
+                        norm_k == "SilentHoursScheduledPreset"
+                        and silent_val is not None
+                    ):
+                        continue
+                    with contextlib.suppress(ValueError, TypeError):
+                        payload_settings[norm_k] = int(v)
 
         return {
             "settings": payload_settings,

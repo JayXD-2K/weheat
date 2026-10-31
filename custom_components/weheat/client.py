@@ -360,24 +360,27 @@ class WeheatClient:
                 hps = [{}]
 
             for hp_dict in hps:
-                cb_id = item.get("controlBoardId") or hp_dict.get("controlBoardId")
+                cb_id = hp_dict.get("controlBoardId") or item.get("controlBoardId")
                 hp_id = hp_dict.get("id") or item.get("heatPumpId") or item.get("id")
                 inst_id = item.get("installationId") or (
                     item.get("id") if hp_dict or item.get("id") != hp_id else None
                 )
-                if cb_id and "controlBoardId" not in item:
-                    item["controlBoardId"] = cb_id
-                if hp_id and "heatPumpId" not in item:
-                    item["heatPumpId"] = hp_id
-                if inst_id and "installationId" not in item:
-                    item["installationId"] = inst_id
+                if len(hps) == 1:
+                    if cb_id and "controlBoardId" not in item:
+                        item["controlBoardId"] = cb_id
+                    if hp_id and "heatPumpId" not in item:
+                        item["heatPumpId"] = hp_id
+                    if inst_id and "installationId" not in item:
+                        item["installationId"] = inst_id
 
                 if not cb_id:
                     continue
 
                 if hp_id:
                     self._control_board_cache[str(hp_id)] = str(cb_id)
-                if inst_id:
+                if inst_id and (
+                    len(hps) == 1 or str(inst_id) not in self._control_board_cache
+                ):
                     self._control_board_cache[str(inst_id)] = str(cb_id)
                 self._control_board_cache[str(cb_id)] = str(cb_id)
 
