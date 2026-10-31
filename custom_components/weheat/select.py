@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
-from homeassistant.const import CONF_ACCESS_TOKEN, EntityCategory
+from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -137,13 +137,11 @@ SELECT_ENTITIES: tuple[WeheatSelectEntityDescription, ...] = (
         key="performance_mode_preset",
         translation_key="performance_mode_preset",
         options=PERFORMANCE_MODE_OPTIONS,
-        entity_category=EntityCategory.CONFIG,
     ),
     WeheatSelectEntityDescription(
         key="silent_hours_preset",
         translation_key="silent_hours_preset",
         options=SILENT_HOURS_OPTIONS,
-        entity_category=EntityCategory.CONFIG,
     ),
 )
 

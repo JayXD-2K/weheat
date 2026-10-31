@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity, SwitchEntityDescription
-from homeassistant.const import CONF_ACCESS_TOKEN, EntityCategory
+from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -48,7 +48,6 @@ SWITCH_DESCRIPTIONS: tuple[WeheatSwitchEntityDescription, ...] = (
     WeheatSwitchEntityDescription(
         key="silent_hours_schedule_enabled",
         translation_key="silent_hours_schedule_enabled",
-        entity_category=EntityCategory.CONFIG,
     ),
     WeheatSwitchEntityDescription(
         key="legionella_prevention",

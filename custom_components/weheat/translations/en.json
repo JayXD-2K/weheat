@@ -356,46 +356,46 @@
     },
     "time": {
       "monday_silent_hours_start": {
-        "name": "Silent hours schedule 1 - Monday start"
+        "name": "Monday silent hours start"
       },
       "monday_silent_hours_stop": {
-        "name": "Silent hours schedule 1 - Monday stop"
+        "name": "Monday silent hours stop"
       },
       "tuesday_silent_hours_start": {
-        "name": "Silent hours schedule 2 - Tuesday start"
+        "name": "Tuesday silent hours start"
       },
       "tuesday_silent_hours_stop": {
-        "name": "Silent hours schedule 2 - Tuesday stop"
+        "name": "Tuesday silent hours stop"
       },
       "wednesday_silent_hours_start": {
-        "name": "Silent hours schedule 3 - Wednesday start"
+        "name": "Wednesday silent hours start"
       },
       "wednesday_silent_hours_stop": {
-        "name": "Silent hours schedule 3 - Wednesday stop"
+        "name": "Wednesday silent hours stop"
       },
       "thursday_silent_hours_start": {
-        "name": "Silent hours schedule 4 - Thursday start"
+        "name": "Thursday silent hours start"
       },
       "thursday_silent_hours_stop": {
-        "name": "Silent hours schedule 4 - Thursday stop"
+        "name": "Thursday silent hours stop"
       },
       "friday_silent_hours_start": {
-        "name": "Silent hours schedule 5 - Friday start"
+        "name": "Friday silent hours start"
       },
       "friday_silent_hours_stop": {
-        "name": "Silent hours schedule 5 - Friday stop"
+        "name": "Friday silent hours stop"
       },
       "saturday_silent_hours_start": {
-        "name": "Silent hours schedule 6 - Saturday start"
+        "name": "Saturday silent hours start"
       },
       "saturday_silent_hours_stop": {
-        "name": "Silent hours schedule 6 - Saturday stop"
+        "name": "Saturday silent hours stop"
       },
       "sunday_silent_hours_start": {
-        "name": "Silent hours schedule 7 - Sunday start"
+        "name": "Sunday silent hours start"
       },
       "sunday_silent_hours_stop": {
-        "name": "Silent hours schedule 7 - Sunday stop"
+        "name": "Sunday silent hours stop"
       }
     },
     "button": {

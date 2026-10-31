@@ -511,8 +511,8 @@ async def test_async_setup_entry_select_and_switch(
     assert len(added_switches) == 3
 
 
-def test_configuration_card_weekday_sort_order() -> None:
-    """Verify Configuration card entity names sort cleanly with Monday-Sunday schedule order."""
+def test_time_entity_day_names() -> None:
+    """Verify time entity names use clean day names in strings.json and en.json."""
     import json
     from pathlib import Path
 
@@ -521,32 +521,22 @@ def test_configuration_card_weekday_sort_order() -> None:
         "custom_components/weheat/translations/en.json",
     ):
         data = json.loads(Path(path_str).read_text(encoding="utf-8"))
-        ent = data["entity"]
-        config_names = [
-            ent["select"]["performance_mode_preset"]["name"],
-            ent["select"]["silent_hours_preset"]["name"],
-            ent["switch"]["silent_hours_schedule_enabled"]["name"],
-            *[v["name"] for v in ent["time"].values()],
-        ]
-        # Home Assistant sorts Configuration card entities alphabetically by name
-        assert sorted(config_names) == [
-            "Performance mode",
-            "Silent hours preset",
-            "Silent hours schedule",
-            "Silent hours schedule 1 - Monday start",
-            "Silent hours schedule 1 - Monday stop",
-            "Silent hours schedule 2 - Tuesday start",
-            "Silent hours schedule 2 - Tuesday stop",
-            "Silent hours schedule 3 - Wednesday start",
-            "Silent hours schedule 3 - Wednesday stop",
-            "Silent hours schedule 4 - Thursday start",
-            "Silent hours schedule 4 - Thursday stop",
-            "Silent hours schedule 5 - Friday start",
-            "Silent hours schedule 5 - Friday stop",
-            "Silent hours schedule 6 - Saturday start",
-            "Silent hours schedule 6 - Saturday stop",
-            "Silent hours schedule 7 - Sunday start",
-            "Silent hours schedule 7 - Sunday stop",
+        time_names = [v["name"] for v in data["entity"]["time"].values()]
+        assert time_names == [
+            "Monday silent hours start",
+            "Monday silent hours stop",
+            "Tuesday silent hours start",
+            "Tuesday silent hours stop",
+            "Wednesday silent hours start",
+            "Wednesday silent hours stop",
+            "Thursday silent hours start",
+            "Thursday silent hours stop",
+            "Friday silent hours start",
+            "Friday silent hours stop",
+            "Saturday silent hours start",
+            "Saturday silent hours stop",
+            "Sunday silent hours start",
+            "Sunday silent hours stop",
         ]
 
 
