@@ -73,11 +73,11 @@ def test_select_catalog_and_options() -> None:
     assert SELECT_ENTITIES[0].key == "performance_mode_preset"
     assert SELECT_ENTITIES[0].options == PERFORMANCE_MODE_OPTIONS
     assert PERFORMANCE_MODE_OPTIONS == [
-        "Performance",
-        "Silent 1",
-        "Silent 2",
-        "Silent 3",
-        "Silent 4",
+        "Mode 5 - Max capacity",
+        "Mode 4 - Standard",
+        "Mode 3 - Reduced",
+        "Mode 2 - Low noise",
+        "Mode 1 - Minimum noise",
     ]
 
     assert SELECT_ENTITIES[1].key == "silent_hours_preset"
@@ -105,20 +105,20 @@ def test_performance_mode_select_current_option(
         entity_description=SELECT_ENTITIES[0],
     )
 
-    # Initial fixture has PerformanceModePreset == 0 -> "Performance"
-    assert entity.current_option == "Performance"
+    # Initial fixture has PerformanceModePreset == 0 -> "Mode 5 - Max capacity"
+    assert entity.current_option == "Mode 5 - Max capacity"
 
     mock_settings.performance_mode_preset = 1
-    assert entity.current_option == "Silent 1"
+    assert entity.current_option == "Mode 4 - Standard"
 
     mock_settings.performance_mode_preset = 2
-    assert entity.current_option == "Silent 2"
+    assert entity.current_option == "Mode 3 - Reduced"
 
     mock_settings.performance_mode_preset = 3
-    assert entity.current_option == "Silent 3"
+    assert entity.current_option == "Mode 2 - Low noise"
 
     mock_settings.performance_mode_preset = 4
-    assert entity.current_option == "Silent 4"
+    assert entity.current_option == "Mode 1 - Minimum noise"
 
     mock_settings.performance_mode_preset = 99
     assert entity.current_option is None
@@ -509,3 +509,98 @@ async def test_async_setup_entry_select_and_switch(
     await async_setup_switch_entry(hass, entry, added_switches.extend)
     # mock_hp_info has has_dhw=True, so 3 switches: schedule, legionella, dhw_boost
     assert len(added_switches) == 3
+
+
+def test_configuration_card_weekday_sort_order() -> None:
+    """Verify Configuration card entity names sort cleanly with Monday-Sunday schedule order."""
+    import json
+    from pathlib import Path
+
+    for path_str in (
+        "custom_components/weheat/strings.json",
+        "custom_components/weheat/translations/en.json",
+    ):
+        data = json.loads(Path(path_str).read_text(encoding="utf-8"))
+        ent = data["entity"]
+        config_names = [
+            ent["select"]["performance_mode_preset"]["name"],
+            ent["select"]["silent_hours_preset"]["name"],
+            ent["switch"]["silent_hours_schedule_enabled"]["name"],
+            *[v["name"] for v in ent["time"].values()],
+        ]
+        # Home Assistant sorts Configuration card entities alphabetically by name
+        assert sorted(config_names) == [
+            "Performance mode",
+            "Silent hours preset",
+            "Silent hours schedule",
+            "Silent hours schedule 1 - Monday start",
+            "Silent hours schedule 1 - Monday stop",
+            "Silent hours schedule 2 - Tuesday start",
+            "Silent hours schedule 2 - Tuesday stop",
+            "Silent hours schedule 3 - Wednesday start",
+            "Silent hours schedule 3 - Wednesday stop",
+            "Silent hours schedule 4 - Thursday start",
+            "Silent hours schedule 4 - Thursday stop",
+            "Silent hours schedule 5 - Friday start",
+            "Silent hours schedule 5 - Friday stop",
+            "Silent hours schedule 6 - Saturday start",
+            "Silent hours schedule 6 - Saturday stop",
+            "Silent hours schedule 7 - Sunday start",
+            "Silent hours schedule 7 - Sunday stop",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_async_reload_entry_skips_background_token_refresh(
+    mock_hp_info: HeatPumpInfo,
+) -> None:
+    """Verify background token refresh does not trigger full entry reload."""
+    from custom_components.weheat import async_reload_entry
+    from custom_components.weheat.const import (
+        CONF_PORTAL_PASSWORD,
+        CONF_PORTAL_TOKEN,
+        CONF_PORTAL_USERNAME,
+    )
+    from custom_components.weheat.coordinator import WeheatPortalSession
+
+    hass = MagicMock()
+    hass.config_entries.async_reload = AsyncMock()
+
+    refreshed_token = {
+        "access_token": "new_jwt",
+        "refresh_token": "new_refresh",
+        "expires_at": 9999999999.0,
+    }
+    entry = ConfigEntry(
+        entry_id="entry_1",
+        options={
+            CONF_PORTAL_USERNAME: "user@example.com",
+            CONF_PORTAL_PASSWORD: "secret",
+            CONF_PORTAL_TOKEN: refreshed_token,
+        },
+    )
+    fallback_session = MagicMock()
+    portal_session = WeheatPortalSession(hass, entry, MagicMock(), fallback_session)
+
+    data_item = WeheatData(
+        heat_pump_info=mock_hp_info,
+        data_coordinator=MagicMock(),
+        energy_coordinator=MagicMock(),
+        settings_coordinator=MagicMock(),
+        client=MagicMock(),
+        session=portal_session,
+    )
+    entry.runtime_data = [data_item]
+
+    # 1. Background token persistence matches session._portal_token -> no reload
+    await async_reload_entry(hass, entry)
+    hass.config_entries.async_reload.assert_not_awaited()
+
+    # 2. User updates credentials in OptionsFlow -> reloads integration
+    entry.options = {
+        CONF_PORTAL_USERNAME: "newuser@example.com",
+        CONF_PORTAL_PASSWORD: "newpassword",
+        CONF_PORTAL_TOKEN: {"access_token": "user_updated_jwt"},
+    }
+    await async_reload_entry(hass, entry)
+    hass.config_entries.async_reload.assert_awaited_once_with("entry_1")

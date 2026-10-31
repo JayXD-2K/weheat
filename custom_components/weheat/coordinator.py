@@ -329,6 +329,9 @@ class WeheatPortalSession:
         self.client = client
         self.fallback_session = fallback_session
         self._portal_token: dict[str, Any] | None = self._extract_portal_token()
+        self._known_credentials: tuple[str | None, str | None] = (
+            self._get_portal_credentials()
+        )
 
     def _extract_portal_token(self) -> dict[str, Any] | None:
         """Extract portal token dict from config entry options or data."""
@@ -390,6 +393,7 @@ class WeheatPortalSession:
     def _persist_portal_token(self, new_token: dict[str, Any]) -> None:
         """Persist updated portal token into memory and config entry options."""
         self._portal_token = dict(new_token)
+        self._known_credentials = self._get_portal_credentials()
         options = dict(getattr(self.config_entry, "options", None) or {})
         options[CONF_PORTAL_TOKEN] = dict(new_token)
         if hasattr(self.config_entry, "options") and isinstance(

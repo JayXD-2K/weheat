@@ -50,29 +50,35 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 # Performance Mode Preset (Quiet Level) Options & Mappings
-# Maps to Weheat Portal UI "Quiet level" daytime slider:
-# Performance = Extra savings / Maximum power (0)
-# Silent 1 = Quiet level 1 (1)
-# Silent 2 = Quiet level 2 (2)
-# Silent 3 = Quiet level 3 (3)
-# Silent 4 = Extra quiet / Quiet level 4 (4)
+# Maps to Weheat documentation Sound Modes (Modus 1–5) & Portal "Quiet level" daytime slider:
+# Mode 5 - Max capacity = Extra savings / Maximum power (0)
+# Mode 4 - Standard = Nominal rated performance (1 / Silent 1)
+# Mode 3 - Reduced = Reduced power / lower noise (2 / Silent 2)
+# Mode 2 - Low noise = Strict residential noise limits (3 / Silent 3)
+# Mode 1 - Minimum noise = Extra quiet / Lowest daytime power limit (4 / Silent 4)
 PERFORMANCE_MODE_OPTIONS: list[str] = [
-    "Performance",
-    "Silent 1",
-    "Silent 2",
-    "Silent 3",
-    "Silent 4",
+    "Mode 5 - Max capacity",
+    "Mode 4 - Standard",
+    "Mode 3 - Reduced",
+    "Mode 2 - Low noise",
+    "Mode 1 - Minimum noise",
 ]
 
 PRESET_TO_PERFORMANCE_MODE_OPTION: dict[int, str] = {
-    PerformanceModePreset.PERFORMANCE: "Performance",
-    PerformanceModePreset.SILENT_1: "Silent 1",
-    PerformanceModePreset.SILENT_2: "Silent 2",
-    PerformanceModePreset.SILENT_3: "Silent 3",
-    PerformanceModePreset.SILENT_4: "Silent 4",
+    PerformanceModePreset.PERFORMANCE: "Mode 5 - Max capacity",
+    PerformanceModePreset.SILENT_1: "Mode 4 - Standard",
+    PerformanceModePreset.SILENT_2: "Mode 3 - Reduced",
+    PerformanceModePreset.SILENT_3: "Mode 2 - Low noise",
+    PerformanceModePreset.SILENT_4: "Mode 1 - Minimum noise",
 }
 
 PERFORMANCE_MODE_OPTION_TO_PRESET: dict[str, int] = {
+    "Mode 5 - Max capacity": PerformanceModePreset.PERFORMANCE,
+    "Mode 4 - Standard": PerformanceModePreset.SILENT_1,
+    "Mode 3 - Reduced": PerformanceModePreset.SILENT_2,
+    "Mode 2 - Low noise": PerformanceModePreset.SILENT_3,
+    "Mode 1 - Minimum noise": PerformanceModePreset.SILENT_4,
+    # Legacy aliases supported for backward compatibility
     "Performance": PerformanceModePreset.PERFORMANCE,
     "Silent 1": PerformanceModePreset.SILENT_1,
     "Silent 2": PerformanceModePreset.SILENT_2,

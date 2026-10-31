@@ -41,11 +41,11 @@
   "services": {
     "set_quiet_mode": {
       "name": "Set quiet mode",
-      "description": "Set the daytime performance or quiet mode preset for a Weheat heat pump. Presets range from Performance (extra savings / maximum power) to Silent 4 (extra quiet / maximum daytime noise reduction) by capping compressor and fan speeds.",
+      "description": "Set the daytime performance or quiet mode preset for a Weheat heat pump. Presets range from Mode 5 - Max capacity / Performance (extra savings / maximum power) to Mode 1 - Minimum noise / Silent 4 (extra quiet / maximum daytime noise reduction) by capping compressor and fan speeds along an outdoor-temperature RPM limit curve.",
       "fields": {
         "mode": {
           "name": "Mode",
-          "description": "The quiet mode preset to apply: 'Performance' (0: Extra savings / Maximum power, unrestricted compressor/fan speed), 'Silent 1' (1: Quiet level 1, slight noise reduction), 'Silent 2' (2: Quiet level 2, moderate noise reduction), 'Silent 3' (3: Quiet level 3, high noise reduction), or 'Silent 4' (4: Extra quiet, lowest daytime power limit)."
+          "description": "The quiet mode preset to apply: 'Mode 5 - Max capacity' / 'Performance' (0: Extra savings / Maximum power, unrestricted compressor/fan speed), 'Mode 4 - Standard' / 'Silent 1' (1: Quiet level 1, slight noise reduction), 'Mode 3 - Reduced' / 'Silent 2' (2: Quiet level 2, moderate noise reduction), 'Mode 2 - Low noise' / 'Silent 3' (3: Quiet level 3, high noise reduction), or 'Mode 1 - Minimum noise' / 'Silent 4' (4: Extra quiet, lowest daytime power limit)."
         }
       }
     },
@@ -318,11 +318,16 @@
       "performance_mode_preset": {
         "name": "Performance mode",
         "state": {
-          "performance": "Performance",
-          "silent_1": "Silent 1",
-          "silent_2": "Silent 2",
-          "silent_3": "Silent 3",
-          "silent_4": "Silent 4"
+          "Mode 5 - Max capacity": "Mode 5 - Max capacity",
+          "Mode 4 - Standard": "Mode 4 - Standard",
+          "Mode 3 - Reduced": "Mode 3 - Reduced",
+          "Mode 2 - Low noise": "Mode 2 - Low noise",
+          "Mode 1 - Minimum noise": "Mode 1 - Minimum noise",
+          "performance": "Mode 5 - Max capacity",
+          "silent_1": "Mode 4 - Standard",
+          "silent_2": "Mode 3 - Reduced",
+          "silent_3": "Mode 2 - Low noise",
+          "silent_4": "Mode 1 - Minimum noise"
         }
       },
       "silent_hours_preset": {
@@ -351,46 +356,46 @@
     },
     "time": {
       "monday_silent_hours_start": {
-        "name": "Monday silent hours start"
+        "name": "Silent hours schedule 1 - Monday start"
       },
       "monday_silent_hours_stop": {
-        "name": "Monday silent hours stop"
+        "name": "Silent hours schedule 1 - Monday stop"
       },
       "tuesday_silent_hours_start": {
-        "name": "Tuesday silent hours start"
+        "name": "Silent hours schedule 2 - Tuesday start"
       },
       "tuesday_silent_hours_stop": {
-        "name": "Tuesday silent hours stop"
+        "name": "Silent hours schedule 2 - Tuesday stop"
       },
       "wednesday_silent_hours_start": {
-        "name": "Wednesday silent hours start"
+        "name": "Silent hours schedule 3 - Wednesday start"
       },
       "wednesday_silent_hours_stop": {
-        "name": "Wednesday silent hours stop"
+        "name": "Silent hours schedule 3 - Wednesday stop"
       },
       "thursday_silent_hours_start": {
-        "name": "Thursday silent hours start"
+        "name": "Silent hours schedule 4 - Thursday start"
       },
       "thursday_silent_hours_stop": {
-        "name": "Thursday silent hours stop"
+        "name": "Silent hours schedule 4 - Thursday stop"
       },
       "friday_silent_hours_start": {
-        "name": "Friday silent hours start"
+        "name": "Silent hours schedule 5 - Friday start"
       },
       "friday_silent_hours_stop": {
-        "name": "Friday silent hours stop"
+        "name": "Silent hours schedule 5 - Friday stop"
       },
       "saturday_silent_hours_start": {
-        "name": "Saturday silent hours start"
+        "name": "Silent hours schedule 6 - Saturday start"
       },
       "saturday_silent_hours_stop": {
-        "name": "Saturday silent hours stop"
+        "name": "Silent hours schedule 6 - Saturday stop"
       },
       "sunday_silent_hours_start": {
-        "name": "Sunday silent hours start"
+        "name": "Silent hours schedule 7 - Sunday start"
       },
       "sunday_silent_hours_stop": {
-        "name": "Sunday silent hours stop"
+        "name": "Silent hours schedule 7 - Sunday stop"
       }
     },
     "button": {

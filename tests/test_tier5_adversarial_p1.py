@@ -855,7 +855,7 @@ class TestSelectAdversarialBranches:
 
         # 2. Data is dict with PerformanceModePreset
         coord.data = {"PerformanceModePreset": 2, "SilentHoursScheduledPreset": 3}
-        assert entity_perf.current_option == "Silent 2"
+        assert entity_perf.current_option == "Mode 3 - Reduced"
         assert entity_silent.current_option == "Silent 3"
 
         # 3. Data is dict with lower-case keys
@@ -863,7 +863,7 @@ class TestSelectAdversarialBranches:
             "performance_mode_preset": 0,
             "silent_hours_preset": 0,
         }
-        assert entity_perf.current_option == "Performance"
+        assert entity_perf.current_option == "Mode 5 - Max capacity"
         assert entity_silent.current_option == "Off"
 
         # 4. Out of range preset returns None

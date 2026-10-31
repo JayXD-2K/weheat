@@ -360,8 +360,8 @@ async def test_scenario_night_setback_and_cold_snap_override(
         client=mock_client,
         session=mock_session,
     )
-    # Baseline is Performance (0)
-    assert perf_select.current_option == "Performance"
+    # Baseline is Performance (0) -> Mode 5 - Max capacity
+    assert perf_select.current_option == "Mode 5 - Max capacity"
 
     # Step A: 22:00 Night Setback activation to "Silent 1"
     setback_call = ServiceCall(
@@ -379,11 +379,11 @@ async def test_scenario_night_setback_and_cold_snap_override(
     mock_client.async_poll_settings_request.assert_called_once()
     settings_coord.async_request_refresh.assert_called_once()
 
-    # Coordinator reflects Silent 1
+    # Coordinator reflects Silent 1 -> Mode 4 - Standard
     updated_dict = load_fixture("installation_settings_get.json")
     updated_dict["settings"]["performanceModePreset"] = 1
     settings_coord.data = ControlBoardSettings.from_api_dict(updated_dict)
-    assert perf_select.current_option == "Silent 1"
+    assert perf_select.current_option == "Mode 4 - Standard"
 
     # Step B: 03:00 Cold snap freeze override back to "Performance"
     mock_client.async_set_performance_mode.reset_mock()
@@ -405,10 +405,10 @@ async def test_scenario_night_setback_and_cold_snap_override(
     mock_client.async_poll_settings_request.assert_called_once()
     settings_coord.async_request_refresh.assert_called_once()
 
-    # Coordinator reflects Performance
+    # Coordinator reflects Performance -> Mode 5 - Max capacity
     updated_dict["settings"]["performanceModePreset"] = 0
     settings_coord.data = ControlBoardSettings.from_api_dict(updated_dict)
-    assert perf_select.current_option == "Performance"
+    assert perf_select.current_option == "Mode 5 - Max capacity"
 
 
 # -----------------------------------------------------------------------------

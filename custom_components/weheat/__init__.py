@@ -26,7 +26,12 @@ from .client import (
     WeheatError,
     WeheatTimeoutError,
 )
-from .const import DEFAULT_API_BASE_URL, DEFAULT_PORTAL_BASE_URL, DOMAIN
+from .const import (
+    CONF_PORTAL_TOKEN,
+    DEFAULT_API_BASE_URL,
+    DEFAULT_PORTAL_BASE_URL,
+    DOMAIN,
+)
 from .coordinator import (
     WeheatConfigEntry,
     WeheatData,
@@ -196,7 +201,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> None:
-    """Reload config entry when options are updated."""
+    """Reload config entry when options are updated by the user.
+
+    Skips reload if the options update was an internal background token refresh
+    persisted by WeheatPortalSession._persist_portal_token.
+    """
+    runtime_data = getattr(entry, "runtime_data", None)
+    if isinstance(runtime_data, list) and runtime_data:
+        session = getattr(runtime_data[0], "session", None)
+        if isinstance(session, WeheatPortalSession):
+            current_creds = session._get_portal_credentials()
+            known_creds = getattr(session, "_known_credentials", None)
+            entry_tok = (getattr(entry, "options", None) or {}).get(CONF_PORTAL_TOKEN)
+            mem_tok = session._portal_token
+            if (
+                current_creds == known_creds
+                and isinstance(entry_tok, dict)
+                and isinstance(mem_tok, dict)
+                and entry_tok.get(CONF_ACCESS_TOKEN)
+                and entry_tok.get(CONF_ACCESS_TOKEN) == mem_tok.get(CONF_ACCESS_TOKEN)
+            ):
+                _LOGGER.debug(
+                    "Skipping config entry reload for background portal token refresh"
+                )
+                return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

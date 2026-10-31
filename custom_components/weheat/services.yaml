@@ -9,22 +9,22 @@ set_quiet_mode:
   fields:
     mode:
       name: Mode
-      description: The quiet mode preset to apply (Performance / 0 to Silent 4 / 4).
+      description: The quiet mode preset to apply (Mode 5 - Max capacity / 0 down to Mode 1 - Minimum noise / 4).
       required: true
-      example: "Silent 2"
+      example: "Mode 3 - Reduced"
       selector:
         select:
           options:
-            - label: "Performance (0: Extra savings / Maximum power)"
-              value: "Performance"
-            - label: "Silent 1 (1: Quiet level 1 - Mild noise reduction)"
-              value: "Silent 1"
-            - label: "Silent 2 (2: Quiet level 2 - Moderate noise reduction)"
-              value: "Silent 2"
-            - label: "Silent 3 (3: Quiet level 3 - High noise reduction)"
-              value: "Silent 3"
-            - label: "Silent 4 (4: Extra quiet - Maximum daytime noise reduction)"
-              value: "Silent 4"
+            - label: "Mode 5 - Max capacity (0: Extra savings / Maximum power)"
+              value: "Mode 5 - Max capacity"
+            - label: "Mode 4 - Standard (1: Silent 1 - Nominal balanced capacity)"
+              value: "Mode 4 - Standard"
+            - label: "Mode 3 - Reduced (2: Silent 2 - Reduced power & noise)"
+              value: "Mode 3 - Reduced"
+            - label: "Mode 2 - Low noise (3: Silent 3 - Strict residential noise limits)"
+              value: "Mode 2 - Low noise"
+            - label: "Mode 1 - Minimum noise (4: Silent 4 - Extra quiet / lowest power)"
+              value: "Mode 1 - Minimum noise"
 
 set_silent_schedule:
   name: Set silent schedule

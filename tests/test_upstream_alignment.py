@@ -434,12 +434,18 @@ def test_quiet_mode_and_night_limit_expanded_explanations() -> None:
     services_text = SERVICES_PATH.read_text(encoding="utf-8")
 
     # 1. Check services.yaml contains daytime preset explanations (0..4) and night limits (0, 1..7)
-    assert "Performance (0: Extra savings / Maximum power)" in services_text
-    assert "Silent 1 (1: Quiet level 1 - Mild noise reduction)" in services_text
-    assert "Silent 2 (2: Quiet level 2 - Moderate noise reduction)" in services_text
-    assert "Silent 3 (3: Quiet level 3 - High noise reduction)" in services_text
+    assert "Mode 5 - Max capacity (0: Extra savings / Maximum power)" in services_text
     assert (
-        "Silent 4 (4: Extra quiet - Maximum daytime noise reduction)" in services_text
+        "Mode 4 - Standard (1: Silent 1 - Nominal balanced capacity)" in services_text
+    )
+    assert "Mode 3 - Reduced (2: Silent 2 - Reduced power & noise)" in services_text
+    assert (
+        "Mode 2 - Low noise (3: Silent 3 - Strict residential noise limits)"
+        in services_text
+    )
+    assert (
+        "Mode 1 - Minimum noise (4: Silent 4 - Extra quiet / lowest power)"
+        in services_text
     )
 
     assert "Off (0: Disable scheduled quiet hours)" in services_text

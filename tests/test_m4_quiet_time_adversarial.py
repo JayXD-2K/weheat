@@ -691,14 +691,14 @@ async def test_select_performance_mode_error_handling(
         client=client,
     )
 
-    # Initial option from fixture is Performance (0)
-    assert entity.current_option == "Performance"
+    # Initial option from fixture is Performance (0) -> Mode 5 - Max capacity
+    assert entity.current_option == "Mode 5 - Max capacity"
 
     with pytest.raises(HomeAssistantError, match="Failed to set performance mode"):
-        await entity.async_select_option("Silent 3")
+        await entity.async_select_option("Mode 2 - Low noise")
 
     # Current option remains unchanged
-    assert entity.current_option == "Performance"
+    assert entity.current_option == "Mode 5 - Max capacity"
 
 
 @pytest.mark.asyncio
