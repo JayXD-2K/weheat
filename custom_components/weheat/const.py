@@ -34,7 +34,14 @@ OAUTH2_AUTHORIZE = (
 OAUTH2_TOKEN = (
     "https://auth.weheat.nl/auth/realms/Weheat/protocol/openid-connect/token/"
 )
-OAUTH2_CLIENT_ID = "weheat-portal"
+# Official public Home Assistant API credentials per Weheat support guide:
+# https://support.weheat.nl/s/article/Is-er-een-offici%C3%ABle-Home-Assistant-integratie?language=nl_NL
+DEFAULT_CLIENT_ID = "HomeAssistantAPI"
+DEFAULT_CLIENT_SECRET = "TqpNpiJDKbGXF8jaL9D1Y8yzl1pI1Fly"
+DEFAULT_OAUTH_CLIENT_ID = DEFAULT_CLIENT_ID
+DEFAULT_OAUTH_CLIENT_SECRET = DEFAULT_CLIENT_SECRET
+OAUTH2_CLIENT_ID = DEFAULT_CLIENT_ID
+PORTAL_CLIENT_ID = "weheat-portal"
 OAUTH2_SCOPES = ["openid", "offline_access"]
 
 # Portal PKCE & Session Authentication Configuration

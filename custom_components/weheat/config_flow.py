@@ -13,8 +13,12 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import CONF_ACCESS_TOKEN, CONF_TOKEN
+from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.config_entry_oauth2_flow import AbstractOAuth2FlowHandler
+from homeassistant.helpers.config_entry_oauth2_flow import (
+    AbstractOAuth2FlowHandler,
+    LocalOAuth2ImplementationWithPkce,
+)
 
 from .client import WeheatClient, WeheatError
 from .const import (
@@ -23,10 +27,14 @@ from .const import (
     CONF_PORTAL_TOKEN,
     CONF_PORTAL_USERNAME,
     DEFAULT_API_BASE_URL,
+    DEFAULT_CLIENT_ID,
+    DEFAULT_CLIENT_SECRET,
     DEFAULT_PORTAL_BASE_URL,
     DOMAIN,
     ENTRY_TITLE,
+    OAUTH2_AUTHORIZE,
     OAUTH2_SCOPES,
+    OAUTH2_TOKEN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +58,73 @@ class OAuth2FlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
         return {
             "scope": " ".join(OAUTH2_SCOPES),
         }
+
+    @override
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle a flow start initialized by the user."""
+        await self._async_ensure_default_credentials()
+        return await super().async_step_user(user_input)
+
+    async def _async_ensure_default_credentials(self) -> None:
+        """Ensure default OAuth application credentials exist so setup works out of the box."""
+        try:
+            implementations = await config_entry_oauth2_flow.async_get_implementations(
+                self.hass, self.DOMAIN
+            )
+        except Exception:
+            implementations = {}
+
+        if implementations:
+            return
+
+        # Attempt primary registration via application_credentials storage
+        try:
+            from homeassistant.components.application_credentials import (
+                ClientCredential,
+                async_import_client_credential,
+            )
+
+            await async_import_client_credential(
+                self.hass,
+                self.DOMAIN,
+                ClientCredential(
+                    client_id=DEFAULT_CLIENT_ID,
+                    client_secret=DEFAULT_CLIENT_SECRET,
+                    name="Weheat (Default)",
+                ),
+            )
+        except Exception as err:
+            self.logger.debug("Could not seed default application credentials: %s", err)
+
+        # Verify implementation availability or register local fallback
+        try:
+            implementations = await config_entry_oauth2_flow.async_get_implementations(
+                self.hass, self.DOMAIN
+            )
+        except Exception:
+            implementations = {}
+
+        if not implementations:
+            try:
+                config_entry_oauth2_flow.async_register_implementation(
+                    self.hass,
+                    self.DOMAIN,
+                    LocalOAuth2ImplementationWithPkce(
+                        self.hass,
+                        self.DOMAIN,
+                        DEFAULT_CLIENT_ID,
+                        OAUTH2_AUTHORIZE,
+                        OAUTH2_TOKEN,
+                        DEFAULT_CLIENT_SECRET,
+                    ),
+                )
+            except Exception as err:
+                self.logger.debug(
+                    "Could not register direct LocalOAuth2ImplementationWithPkce: %s",
+                    err,
+                )
 
     @override
     async def async_oauth_create_entry(self, data: dict[str, Any]) -> ConfigFlowResult:

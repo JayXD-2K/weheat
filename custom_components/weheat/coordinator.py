@@ -12,7 +12,7 @@ from aiohttp import ClientError, ClientResponseError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -335,8 +335,21 @@ class WeheatPortalSession:
         options = getattr(self.config_entry, "options", None) or {}
         data = getattr(self.config_entry, "data", None) or {}
         raw_tok = options.get(CONF_PORTAL_TOKEN) or data.get(CONF_PORTAL_TOKEN)
-        if isinstance(raw_tok, dict) and raw_tok.get(CONF_ACCESS_TOKEN):
-            return dict(raw_tok)
+        if isinstance(raw_tok, dict):
+            access_tok = raw_tok.get(CONF_ACCESS_TOKEN) or raw_tok.get("accessToken")
+            if not access_tok and isinstance(raw_tok.get("token"), dict):
+                access_tok = raw_tok["token"].get(CONF_ACCESS_TOKEN) or raw_tok[
+                    "token"
+                ].get("accessToken")
+            if access_tok:
+                tok_dict = dict(raw_tok)
+                tok_dict[CONF_ACCESS_TOKEN] = str(access_tok)
+                return tok_dict
+        elif isinstance(raw_tok, str) and raw_tok.strip():
+            try:
+                return WeheatClient.parse_portal_session_input(raw_tok)
+            except Exception:
+                pass
         return None
 
     def _get_portal_credentials(self) -> tuple[str | None, str | None]:
@@ -346,13 +359,15 @@ class WeheatPortalSession:
         username = options.get(CONF_PORTAL_USERNAME) or data.get(CONF_PORTAL_USERNAME)
         password = options.get(CONF_PORTAL_PASSWORD) or data.get(CONF_PORTAL_PASSWORD)
         return (
-            str(username) if username else None,
-            str(password) if password else None,
+            str(username).strip() if username else None,
+            str(password).strip() if password else None,
         )
 
     @property
     def has_portal_auth(self) -> bool:
         """Return True if portal token or portal credentials are configured."""
+        if self._portal_token and self._portal_token.get(CONF_ACCESS_TOKEN):
+            return True
         if self._extract_portal_token() is not None:
             return True
         username, password = self._get_portal_credentials()
@@ -361,6 +376,11 @@ class WeheatPortalSession:
     @property
     def token(self) -> dict[str, Any]:
         """Return the active token dictionary."""
+        if not (self._portal_token and self._portal_token.get(CONF_ACCESS_TOKEN)):
+            stored = self._extract_portal_token()
+            if stored and stored.get(CONF_ACCESS_TOKEN):
+                self._portal_token = stored
+
         if self._portal_token and self._portal_token.get(CONF_ACCESS_TOKEN):
             return self._portal_token
         if self.fallback_session is not None:
@@ -384,6 +404,18 @@ class WeheatPortalSession:
                     self.config_entry, options=options
                 )
 
+    def check_portal_auth(self) -> None:
+        """Verify portal authentication is configured before write operations.
+
+        Raises:
+            HomeAssistantError: If portal credentials or token are not configured.
+        """
+        if not self.has_portal_auth:
+            raise HomeAssistantError(
+                "Weheat Portal credentials required for control actions. "
+                "Please configure your Weheat Portal account in the integration Configure options."
+            )
+
     async def async_ensure_token_valid(self) -> None:
         """Ensure portal token (or fallback OAuth2Session token) is valid."""
         latest_stored = self._extract_portal_token()
@@ -391,7 +423,9 @@ class WeheatPortalSession:
             self._portal_token = latest_stored
 
         username, password = self._get_portal_credentials()
-        if self._portal_token is None and not (username and password):
+        has_auth = (self._portal_token is not None) or bool(username and password)
+
+        if not has_auth:
             if self.fallback_session is not None:
                 await self.fallback_session.async_ensure_token_valid()
             return

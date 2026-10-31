@@ -240,3 +240,132 @@ async def test_setup_entry_settings_403_non_fatal(
     assert result is True
     assert len(mock_config_entry.runtime_data) == 1
     assert mock_config_entry.runtime_data[0].settings_coordinator.data is not None
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_registers_update_listener(
+    mock_config_entry: ConfigEntry, mock_heat_pump_info: HeatPumpInfo
+) -> None:
+    """Verify entry setup attaches options update listener and on_unload hook."""
+    hass = HomeAssistant()
+
+    with (
+        patch(
+            "custom_components.weheat.OAuth2Session.async_ensure_token_valid",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.WeheatClient.async_get_heat_pumps",
+            new=AsyncMock(return_value=[mock_heat_pump_info]),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatDataUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatEnergyUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatSettingsUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+    ):
+        result = await async_setup_entry(hass, mock_config_entry)
+
+    assert result is True
+    assert len(mock_config_entry.update_listeners) == 1
+    assert len(mock_config_entry._on_unload) >= 1
+
+
+@pytest.mark.asyncio
+async def test_async_reload_entry_calls_async_reload(
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Verify async_reload_entry requests Home Assistant to reload the entry ID."""
+    hass = HomeAssistant()
+    from custom_components.weheat import async_reload_entry
+
+    await async_reload_entry(hass, mock_config_entry)
+    assert hass.config_entries.reloaded_entries == [mock_config_entry.entry_id]
+
+
+@pytest.mark.asyncio
+async def test_options_update_triggers_reload(
+    mock_config_entry: ConfigEntry, mock_heat_pump_info: HeatPumpInfo
+) -> None:
+    """Verify modifying options triggers the reload listener."""
+    hass = HomeAssistant()
+
+    with (
+        patch(
+            "custom_components.weheat.OAuth2Session.async_ensure_token_valid",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.WeheatClient.async_get_heat_pumps",
+            new=AsyncMock(return_value=[mock_heat_pump_info]),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatDataUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatEnergyUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.weheat.coordinator.WeheatSettingsUpdateCoordinator.async_config_entry_first_refresh",
+            new=AsyncMock(),
+        ),
+    ):
+        await async_setup_entry(hass, mock_config_entry)
+
+    # Simulate Home Assistant options update firing listeners
+    mock_config_entry.options = {"portal_username": "user@example.com"}
+    for listener in mock_config_entry.update_listeners:
+        await listener(hass, mock_config_entry)
+
+    assert mock_config_entry.entry_id in hass.config_entries.reloaded_entries
+
+
+@pytest.mark.asyncio
+async def test_unload_entry_cleans_runtime_data_and_coordinators(
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Verify unload entry shuts down coordinators and empties runtime_data."""
+    hass = HomeAssistant()
+    mock_coord = MagicMock()
+    mock_coord.async_shutdown = MagicMock()
+
+    mock_data = MagicMock()
+    mock_data.data_coordinator = mock_coord
+    mock_data.energy_coordinator = mock_coord
+    mock_data.settings_coordinator = mock_coord
+
+    mock_config_entry.runtime_data = [mock_data]
+
+    result = await async_unload_entry(hass, mock_config_entry)
+    assert result is True
+    assert mock_config_entry.runtime_data == []
+    assert mock_coord.async_shutdown.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_update_listener_unsubscribes_on_unload(
+    mock_config_entry: ConfigEntry,
+) -> None:
+    """Verify that unloading invokes unsub callbacks registered in _on_unload."""
+    from custom_components.weheat import async_reload_entry
+
+    unsub = mock_config_entry.add_update_listener(async_reload_entry)
+    mock_config_entry.async_on_unload(unsub)
+
+    assert len(mock_config_entry.update_listeners) == 1
+
+    # Simulate HA core executing _on_unload on unload
+    while mock_config_entry._on_unload:
+        cb = mock_config_entry._on_unload.pop()
+        cb()
+
+    assert len(mock_config_entry.update_listeners) == 0

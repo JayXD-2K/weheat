@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from http import HTTPStatus
 
@@ -87,8 +88,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
         ) from err
 
     nr_of_pumps = len(discovered_heat_pumps)
-    portal_wrapper = WeheatPortalSession(hass, entry, client, session)
-    control_session = portal_wrapper if portal_wrapper.has_portal_auth else session
+    control_session = WeheatPortalSession(hass, entry, client, session)
 
     for pump_info in discovered_heat_pumps:
         _LOGGER.debug(
@@ -160,13 +160,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await async_setup_services(hass)
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
     return True
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> None:
+    """Reload config entry when options are updated."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
+        # Cancel coordinator intervals and detach background listeners
+        for data in getattr(entry, "runtime_data", []) or []:
+            for coord in (
+                getattr(data, "data_coordinator", None),
+                getattr(data, "energy_coordinator", None),
+                getattr(data, "settings_coordinator", None),
+            ):
+                if coord is not None and hasattr(coord, "async_shutdown"):
+                    shutdown_fn = coord.async_shutdown
+                    if callable(shutdown_fn):
+                        res = shutdown_fn()
+                        if inspect.isawaitable(res):
+                            await res
+
+        # Clear runtime_data to eliminate stale coordinator references
+        if hasattr(entry, "runtime_data"):
+            entry.runtime_data = []
+
         remaining_entries = [
             e
             for e in getattr(hass.config_entries, "async_entries", lambda _: [])(DOMAIN)

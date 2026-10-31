@@ -289,6 +289,7 @@ class ClientCredential:
 
     client_id: str
     client_secret: str
+    name: str | None = None
 
 
 class ConfigEntry:
@@ -313,6 +314,31 @@ class ConfigEntry:
         self.unique_id = unique_id
         self.title = title
         self.runtime_data: Any = runtime_data if runtime_data is not None else []
+        self.update_listeners: list[Any] = []
+        self._on_unload: list[Any] = []
+
+    @property
+    def _update_listeners(self) -> list[Any]:
+        return self.update_listeners
+
+    @property
+    def _unload_listeners(self) -> list[Any]:
+        return self._on_unload
+
+    def add_update_listener(self, listener: Any) -> Any:
+        """Register an update listener callback."""
+        self.update_listeners.append(listener)
+
+        def remove_listener() -> None:
+            if listener in self.update_listeners:
+                self.update_listeners.remove(listener)
+
+        return remove_listener
+
+    def async_on_unload(self, func: Any) -> Any:
+        """Register a callback or unsub function for entry unload."""
+        self._on_unload.append(func)
+        return func
 
 
 @dataclass
@@ -387,6 +413,7 @@ class ConfigEntries:
         self.forwarded_setups: list[tuple[Any, list[Platform]]] = []
         self.unloaded_platforms: list[tuple[Any, list[Platform]]] = []
         self._entries: dict[str, list[Any]] = {}
+        self.reloaded_entries: list[str] = []
 
     def async_entries(self, domain: str) -> list[Any]:
         return self._entries.get(domain, [])
@@ -407,6 +434,11 @@ class ConfigEntries:
         self, entry: ConfigEntry, platforms: list[Platform]
     ) -> bool:
         self.unloaded_platforms.append((entry, platforms))
+        return True
+
+    async def async_reload(self, entry_id: str) -> bool:
+        """Mock reloading a config entry."""
+        self.reloaded_entries.append(entry_id)
         return True
 
 
@@ -468,6 +500,41 @@ async def async_get_config_entry_implementation(
         "https://auth.weheat.nl/auth/realms/Weheat/protocol/openid-connect/token/",
         "mock_secret",
     )
+
+
+_OAUTH_IMPLEMENTATIONS: dict[str, dict[str, Any]] = {}
+
+
+def async_register_implementation(
+    hass: HomeAssistant, domain: str, implementation: Any
+) -> None:
+    """Register an OAuth2 implementation."""
+    name = getattr(implementation, "name", getattr(implementation, "client_id", domain))
+    _OAUTH_IMPLEMENTATIONS.setdefault(domain, {})[name] = implementation
+
+
+async def async_get_implementations(hass: HomeAssistant, domain: str) -> dict[str, Any]:
+    """Get all registered OAuth2 implementations for a domain."""
+    return dict(_OAUTH_IMPLEMENTATIONS.get(domain, {}))
+
+
+async def async_import_client_credential(
+    hass: HomeAssistant,
+    auth_domain: str,
+    credential: ClientCredential,
+    name: str = "Imported",
+) -> None:
+    """Mock importing client credentials into application credentials storage."""
+    impl = LocalOAuth2ImplementationWithPkce(
+        hass=hass,
+        auth_domain=auth_domain,
+        client_id=credential.client_id,
+        authorize_url="https://auth.weheat.nl/auth/realms/Weheat/protocol/openid-connect/auth/",
+        token_url="https://auth.weheat.nl/auth/realms/Weheat/protocol/openid-connect/token/",
+        client_secret=credential.client_secret,
+    )
+    impl.name = name or getattr(credential, "name", None) or credential.client_id
+    async_register_implementation(hass, auth_domain, impl)
 
 
 def async_get_clientsession(hass: Any) -> Any:
@@ -588,13 +655,12 @@ def async_redact_data(data: dict[str, Any], to_redact: set[str]) -> dict[str, An
 
 def install_ha_stubs() -> None:
     """Install stub modules into sys.modules if homeassistant is not present."""
-    if "homeassistant" in sys.modules and hasattr(
-        sys.modules["homeassistant"], "const"
-    ):
+    if "homeassistant" in sys.modules and "homeassistant.const" in sys.modules:
         return
 
     ha = types.ModuleType("homeassistant")
     ha_const = types.ModuleType("homeassistant.const")
+    ha.const = ha_const
     ha_const.PERCENTAGE = PERCENTAGE
     ha_const.REVOLUTIONS_PER_MINUTE = REVOLUTIONS_PER_MINUTE
     ha_const.CONF_ACCESS_TOKEN = CONF_ACCESS_TOKEN
@@ -637,6 +703,8 @@ def install_ha_stubs() -> None:
     ha_helpers_oauth.async_get_config_entry_implementation = (
         async_get_config_entry_implementation
     )
+    ha_helpers_oauth.async_get_implementations = async_get_implementations
+    ha_helpers_oauth.async_register_implementation = async_register_implementation
 
     ha_helpers_devreg = types.ModuleType("homeassistant.helpers.device_registry")
     ha_helpers_devreg.DeviceInfo = DeviceInfo
@@ -662,6 +730,9 @@ def install_ha_stubs() -> None:
         "homeassistant.components.application_credentials"
     )
     ha_components_appcred.ClientCredential = ClientCredential
+    ha_components_appcred.async_import_client_credential = (
+        async_import_client_credential
+    )
 
     ha_components_sensor = types.ModuleType("homeassistant.components.sensor")
     ha_components_sensor.SensorEntity = SensorEntity
