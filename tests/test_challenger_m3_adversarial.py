@@ -655,9 +655,9 @@ class TestPresets6And7:
             session=auth_session,
         )
 
-        # Check options list includes Silent 6 and 7
-        assert "Silent 6" in entity.options
-        assert "Silent 7" in entity.options
+        # Check options list includes Whisper (6) and Minimum (7)
+        assert "Whisper" in entity.options
+        assert "Minimum" in entity.options
 
         await entity.async_select_option(option_str)
 
@@ -671,9 +671,11 @@ class TestPresets6And7:
     @pytest.mark.parametrize(
         ("preset_arg", "expected_preset_int"),
         [
+            ("Whisper", 6),
             ("Silent 6", 6),
             ("6", 6),
             (6, 6),
+            ("Minimum", 7),
             ("Silent 7", 7),
             ("7", 7),
             (7, 7),
@@ -732,7 +734,7 @@ class TestPresets6And7:
         assert sent_settings["SilentHoursScheduledPreset"] == expected_preset_int
 
     def test_current_option_displays_silent_6_and_7(self) -> None:
-        """Entity property current_option correctly reflects Silent 6 and Silent 7."""
+        """Entity property current_option correctly reflects Whisper (6) and Minimum (7)."""
         hp_info = _create_mock_heat_pump_info()
         coord = MagicMock()
         coord.data = ControlBoardSettings(silent_hours_preset=6)
@@ -742,10 +744,10 @@ class TestPresets6And7:
             coordinator=coord,
             entity_description=SELECT_ENTITIES[1],
         )
-        assert entity.current_option == "Silent 6"
+        assert entity.current_option == "Whisper"
 
         coord.data = ControlBoardSettings(silent_hours_preset=7)
-        assert entity.current_option == "Silent 7"
+        assert entity.current_option == "Minimum"
 
 
 # =============================================================================

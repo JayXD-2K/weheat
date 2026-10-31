@@ -449,16 +449,30 @@ def test_quiet_mode_and_night_limit_expanded_explanations() -> None:
     )
 
     assert "Off (0: Disable scheduled quiet hours)" in services_text
-    assert "Silent 1 (1: Level 1 night limit - Highest night power)" in services_text
     assert (
-        "Silent 2 (2: Level 2 night limit - Moderate night noise cap)" in services_text
+        "Normal (1: Silent 1 - Level 1 night limit - Highest night power)"
+        in services_text
     )
-    assert "Silent 3 (3: Level 3 night limit - High night noise cap)" in services_text
-    assert "Silent 4 (4: Level 4 night limit - Very quiet night limit)" in services_text
     assert (
-        "Silent 6 (6: Level 6 night limit - Ultra quiet night limit)" in services_text
+        "Background chatter (2: Silent 2 - Level 2 night limit - Moderate night noise cap)"
+        in services_text
     )
-    assert "Silent 7 (7: Level 7 night limit - Maximum quietness)" in services_text
+    assert (
+        "Light rain (3: Silent 3 - Level 3 night limit - High night noise cap)"
+        in services_text
+    )
+    assert (
+        "Library (4: Silent 4 - Level 4 night limit - Very quiet night limit)"
+        in services_text
+    )
+    assert (
+        "Whisper (6: Silent 6 - Level 6 night limit - Ultra quiet night limit)"
+        in services_text
+    )
+    assert (
+        "Minimum (7: Silent 7 - Level 7 night limit - Maximum quietness)"
+        in services_text
+    )
 
     # 2. Check strings.json and translations/en.json
     for path in (STRINGS_PATH, EN_TRANSLATION_PATH):

@@ -87,37 +87,44 @@ PERFORMANCE_MODE_OPTION_TO_PRESET: dict[str, int] = {
 }
 
 # Silent Hours Scheduled Preset Options & Mappings
-# Maps to Weheat Portal UI "Night limit" preset applied during scheduled window:
+# Maps to Weheat Mobile App & Portal UI "Night limit" preset applied during scheduled window:
 # Off = Scheduled quiet hours disabled (0, 5)
-# Silent 1 = Night limit level 1 (mildest night limit / highest night heating capacity) (1)
-# Silent 2 = Night limit level 2 (moderate night noise cap) (2)
-# Silent 3 = Night limit level 3 (high night noise cap) (3)
-# Silent 4 = Night limit level 4 (very quiet night limit) (4)
-# Silent 6 = Night limit level 6 (ultra quiet night limit) (6)
-# Silent 7 = Night limit level 7 (maximum quietness / lowest night power limit) (7)
+# Normal = Night limit level 1 (mildest night limit / highest night heating capacity) (1 / Silent 1)
+# Background chatter = Night limit level 2 (moderate night noise cap) (2 / Silent 2)
+# Light rain = Night limit level 3 (high night noise cap) (3 / Silent 3)
+# Library = Night limit level 4 (very quiet night limit) (4 / Silent 4)
+# Whisper = Night limit level 6 (ultra quiet night limit) (6 / Silent 6)
+# Minimum = Night limit level 7 (maximum quietness / lowest night power limit) (7 / Silent 7)
 SILENT_HOURS_OPTIONS: list[str] = [
     "Off",
-    "Silent 1",
-    "Silent 2",
-    "Silent 3",
-    "Silent 4",
-    "Silent 6",
-    "Silent 7",
+    "Minimum",
+    "Whisper",
+    "Library",
+    "Light rain",
+    "Background chatter",
+    "Normal",
 ]
 
 PRESET_TO_SILENT_HOURS_OPTION: dict[int, str] = {
     SilentHoursScheduledPreset.OFF: "Off",
-    SilentHoursScheduledPreset.SILENT_1: "Silent 1",
-    SilentHoursScheduledPreset.SILENT_2: "Silent 2",
-    SilentHoursScheduledPreset.SILENT_3: "Silent 3",
-    SilentHoursScheduledPreset.SILENT_4: "Silent 4",
+    SilentHoursScheduledPreset.SILENT_1: "Normal",
+    SilentHoursScheduledPreset.SILENT_2: "Background chatter",
+    SilentHoursScheduledPreset.SILENT_3: "Light rain",
+    SilentHoursScheduledPreset.SILENT_4: "Library",
     SilentHoursScheduledPreset.OFF_ALT: "Off",  # 5 maps to Off/Disabled
-    SilentHoursScheduledPreset.SILENT_6: "Silent 6",
-    SilentHoursScheduledPreset.SILENT_7: "Silent 7",
+    SilentHoursScheduledPreset.SILENT_6: "Whisper",
+    SilentHoursScheduledPreset.SILENT_7: "Minimum",
 }
 
 SILENT_HOURS_OPTION_TO_PRESET: dict[str, int] = {
     "Off": SilentHoursScheduledPreset.OFF,
+    "Normal": SilentHoursScheduledPreset.SILENT_1,
+    "Background chatter": SilentHoursScheduledPreset.SILENT_2,
+    "Light rain": SilentHoursScheduledPreset.SILENT_3,
+    "Library": SilentHoursScheduledPreset.SILENT_4,
+    "Whisper": SilentHoursScheduledPreset.SILENT_6,
+    "Minimum": SilentHoursScheduledPreset.SILENT_7,
+    # Legacy aliases supported for backward compatibility
     "Silent 1": SilentHoursScheduledPreset.SILENT_1,
     "Silent 2": SilentHoursScheduledPreset.SILENT_2,
     "Silent 3": SilentHoursScheduledPreset.SILENT_3,

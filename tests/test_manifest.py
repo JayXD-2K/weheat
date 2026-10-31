@@ -19,7 +19,7 @@ def test_manifest_requirements() -> None:
 
     assert manifest["domain"] == "weheat"
     assert manifest["name"] == "Weheat"
-    assert manifest["version"] == "0.1.3"
+    assert manifest["version"] == "0.1.4"
     assert re.match(r"^\d+\.\d+\.\d+$", manifest["version"]), (
         f"Version {manifest['version']} must follow Semantic Versioning (X.Y.Z)"
     )

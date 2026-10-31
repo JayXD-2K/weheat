@@ -37,26 +37,26 @@ set_silent_schedule:
   fields:
     preset:
       name: Preset
-      description: Silent hours preset level to activate during the scheduled quiet window (Off disables schedule; Silent 1 to 7 apply progressively quieter night limits).
+      description: Silent hours preset level to activate during the scheduled quiet window (Off disables schedule; Normal down to Minimum apply progressively quieter night limits).
       required: true
-      example: "Silent 2"
+      example: "Background chatter"
       selector:
         select:
           options:
             - label: "Off (0: Disable scheduled quiet hours)"
               value: "Off"
-            - label: "Silent 1 (1: Level 1 night limit - Highest night power)"
-              value: "Silent 1"
-            - label: "Silent 2 (2: Level 2 night limit - Moderate night noise cap)"
-              value: "Silent 2"
-            - label: "Silent 3 (3: Level 3 night limit - High night noise cap)"
-              value: "Silent 3"
-            - label: "Silent 4 (4: Level 4 night limit - Very quiet night limit)"
-              value: "Silent 4"
-            - label: "Silent 6 (6: Level 6 night limit - Ultra quiet night limit)"
-              value: "Silent 6"
-            - label: "Silent 7 (7: Level 7 night limit - Maximum quietness)"
-              value: "Silent 7"
+            - label: "Minimum (7: Silent 7 - Level 7 night limit - Maximum quietness)"
+              value: "Minimum"
+            - label: "Whisper (6: Silent 6 - Level 6 night limit - Ultra quiet night limit)"
+              value: "Whisper"
+            - label: "Library (4: Silent 4 - Level 4 night limit - Very quiet night limit)"
+              value: "Library"
+            - label: "Light rain (3: Silent 3 - Level 3 night limit - High night noise cap)"
+              value: "Light rain"
+            - label: "Background chatter (2: Silent 2 - Level 2 night limit - Moderate night noise cap)"
+              value: "Background chatter"
+            - label: "Normal (1: Silent 1 - Level 1 night limit - Highest night power)"
+              value: "Normal"
     days:
       name: Days of the week
       description: Days of the week to apply the schedule to (leave blank to apply to all 7 days).

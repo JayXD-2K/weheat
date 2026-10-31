@@ -185,7 +185,7 @@
           "idle": "Idle",
           "paused": "Paused",
           "pausing": "Pausing",
-          "standby": "[%key:common::state::standby%]",
+          "standby": "Standby",
           "standby_run_cp": "Standby, pump running",
           "starting": "Starting",
           "stopped": "Stopped",
@@ -281,7 +281,7 @@
           "manual_control": "Manual control",
           "offline": "Offline",
           "self_test": "Self-test",
-          "standby": "[%key:common::state::standby%]",
+          "standby": "Standby",
           "updating": "Updating",
           "water_check": "Checking water temperature"
         }
@@ -333,13 +333,20 @@
       "silent_hours_preset": {
         "name": "Silent hours preset",
         "state": {
+          "Off": "Off",
+          "Minimum": "Minimum",
+          "Whisper": "Whisper",
+          "Library": "Library",
+          "Light rain": "Light rain",
+          "Background chatter": "Background chatter",
+          "Normal": "Normal",
           "off": "Off",
-          "silent_1": "Silent 1",
-          "silent_2": "Silent 2",
-          "silent_3": "Silent 3",
-          "silent_4": "Silent 4",
-          "silent_6": "Silent 6",
-          "silent_7": "Silent 7"
+          "silent_1": "Normal",
+          "silent_2": "Background chatter",
+          "silent_3": "Light rain",
+          "silent_4": "Library",
+          "silent_6": "Whisper",
+          "silent_7": "Minimum"
         }
       }
     },

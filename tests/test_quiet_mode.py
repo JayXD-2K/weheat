@@ -84,12 +84,12 @@ def test_select_catalog_and_options() -> None:
     assert SELECT_ENTITIES[1].options == SILENT_HOURS_OPTIONS
     assert SILENT_HOURS_OPTIONS == [
         "Off",
-        "Silent 1",
-        "Silent 2",
-        "Silent 3",
-        "Silent 4",
-        "Silent 6",
-        "Silent 7",
+        "Minimum",
+        "Whisper",
+        "Library",
+        "Light rain",
+        "Background chatter",
+        "Normal",
     ]
 
 
@@ -136,8 +136,8 @@ def test_silent_hours_preset_select_current_option(
         entity_description=SELECT_ENTITIES[1],
     )
 
-    # Initial fixture has SilentHoursScheduledPreset == 2 -> "Silent 2"
-    assert entity.current_option == "Silent 2"
+    # Initial fixture has SilentHoursScheduledPreset == 2 -> "Background chatter"
+    assert entity.current_option == "Background chatter"
 
     mock_settings.silent_hours_preset = 0
     assert entity.current_option == "Off"
@@ -146,13 +146,19 @@ def test_silent_hours_preset_select_current_option(
     assert entity.current_option == "Off"
 
     mock_settings.silent_hours_preset = 1
-    assert entity.current_option == "Silent 1"
+    assert entity.current_option == "Normal"
 
     mock_settings.silent_hours_preset = 3
-    assert entity.current_option == "Silent 3"
+    assert entity.current_option == "Light rain"
 
     mock_settings.silent_hours_preset = 4
-    assert entity.current_option == "Silent 4"
+    assert entity.current_option == "Library"
+
+    mock_settings.silent_hours_preset = 6
+    assert entity.current_option == "Whisper"
+
+    mock_settings.silent_hours_preset = 7
+    assert entity.current_option == "Minimum"
 
 
 @pytest.mark.asyncio

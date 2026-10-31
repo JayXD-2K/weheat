@@ -727,14 +727,14 @@ async def test_select_silent_hours_preset_error_handling(
         client=client,
     )
 
-    # Initial option from fixture is Silent 2
-    assert entity.current_option == "Silent 2"
+    # Initial option from fixture is Silent 2 -> Background chatter
+    assert entity.current_option == "Background chatter"
 
     with pytest.raises(HomeAssistantError, match="Failed to set silent hours preset"):
-        await entity.async_select_option("Silent 4")
+        await entity.async_select_option("Library")
 
     # Current option remains unchanged
-    assert entity.current_option == "Silent 2"
+    assert entity.current_option == "Background chatter"
 
 
 @pytest.mark.asyncio

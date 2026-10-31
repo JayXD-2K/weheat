@@ -856,7 +856,7 @@ class TestSelectAdversarialBranches:
         # 2. Data is dict with PerformanceModePreset
         coord.data = {"PerformanceModePreset": 2, "SilentHoursScheduledPreset": 3}
         assert entity_perf.current_option == "Mode 3 - Reduced"
-        assert entity_silent.current_option == "Silent 3"
+        assert entity_silent.current_option == "Light rain"
 
         # 3. Data is dict with lower-case keys
         coord.data = {

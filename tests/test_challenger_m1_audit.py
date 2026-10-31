@@ -219,7 +219,7 @@ def test_enum_state_translations_exhaustiveness():
     )
     up_sensor_strings = up_strings["entity"]["sensor"]
 
-    # 1. heat_pump_state
+    # 1. heat_pump_state (with [%key:common::state::standby%] resolved to "Standby" for HACS)
     hp_states = sensor_strings["heat_pump_state"]["state"]
     expected_hp_states = {
         "cooling",
@@ -235,7 +235,11 @@ def test_enum_state_translations_exhaustiveness():
         "water_check",
     }
     assert set(hp_states.keys()) == expected_hp_states
-    assert hp_states == up_sensor_strings["heat_pump_state"]["state"]
+    expected_up_hp = {
+        **up_sensor_strings["heat_pump_state"]["state"],
+        "standby": "Standby",
+    }
+    assert hp_states == expected_up_hp
 
     # 2. cooling_blocked_by
     cb_states = sensor_strings["cooling_blocked_by"]["state"]
@@ -249,10 +253,14 @@ def test_enum_state_translations_exhaustiveness():
     assert set(cpr_states.keys()) == expected_cpr_states
     assert cpr_states == up_sensor_strings["cooling_pause_reason"]["state"]
 
-    # 4. cooling_state (Must contain all CoolingStatus members and match upstream Core)
+    # 4. cooling_state (Must contain all CoolingStatus members and match upstream Core with Standby resolved)
     cs_states = sensor_strings["cooling_state"]["state"]
     assert {s.name.lower() for s in CoolingStatus}.issubset(set(cs_states.keys()))
-    assert cs_states == up_sensor_strings["cooling_state"]["state"]
+    expected_up_cs = {
+        **up_sensor_strings["cooling_state"]["state"],
+        "standby": "Standby",
+    }
+    assert cs_states == expected_up_cs
 
     # 5. cooling_stop_reason
     csr_states = sensor_strings["cooling_stop_reason"]["state"]
