@@ -19,9 +19,18 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
 from .client import WeheatError
-from .const import DAYS_OF_WEEK, DOMAIN
+from .const import (
+    COOLING_CURVE_MAX_TEMP,
+    COOLING_CURVE_MIN_TEMP_DEFAULT,
+    DAYS_OF_WEEK,
+    DOMAIN,
+)
 from .coordinator import WeheatConfigEntry, WeheatData
-from .models import PerformanceModePreset, SilentHoursScheduledPreset
+from .models import (
+    ControlBoardSettings,
+    PerformanceModePreset,
+    SilentHoursScheduledPreset,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 SERVICE_SET_QUIET_MODE = "set_quiet_mode"
 SERVICE_SET_SILENT_SCHEDULE = "set_silent_schedule"
 SERVICE_TRIGGER_LEGIONELLA = "trigger_legionella_prevention"
+SERVICE_SET_COOLING = "set_cooling"
 
 # Preset Mapping Dictionaries (case-insensitive & aliases)
 QUIET_MODE_MAPPING: dict[str | int, int] = {
@@ -715,6 +725,111 @@ async def async_handle_trigger_legionella(
             ) from err
 
 
+async def async_handle_set_cooling(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle weheat.set_cooling service call."""
+    raw_enabled = call.data.get("enabled")
+    if raw_enabled is None or not isinstance(raw_enabled, bool):
+        raise HomeAssistantError(
+            "Missing or invalid required parameter: 'enabled' (must be boolean true or false)"
+        )
+
+    def _parse_optional_curve_temp(
+        field_name: str, min_allowed: int = COOLING_CURVE_MIN_TEMP_DEFAULT
+    ) -> int | None:
+        raw_val = call.data.get(field_name)
+        if raw_val is None:
+            return None
+        if isinstance(raw_val, bool) or not isinstance(raw_val, (int, float)):
+            raise HomeAssistantError(
+                f"Invalid '{field_name}' value '{raw_val}'. Expected integer temperature in °C."
+            )
+        temp_int = round(float(raw_val))
+        if not (min_allowed <= temp_int <= COOLING_CURVE_MAX_TEMP):
+            raise HomeAssistantError(
+                f"Invalid '{field_name}' temperature {raw_val} °C. Must be between {min_allowed} and {COOLING_CURVE_MAX_TEMP} °C."
+            )
+        return temp_int
+
+    targets = _resolve_target_data(hass, call)
+
+    for data in targets:
+        if data.session is not None and hasattr(data.session, "check_portal_auth"):
+            data.session.check_portal_auth()
+
+        client = data.client
+        if client is None:
+            raise HomeAssistantError("Weheat API client is unavailable")
+
+        settings_obj = getattr(data, "settings_coordinator", None) and getattr(
+            data.settings_coordinator, "data", None
+        )
+        if not isinstance(settings_obj, ControlBoardSettings):
+            settings_obj = (
+                ControlBoardSettings.from_api_dict(settings_obj)
+                if isinstance(settings_obj, dict)
+                else ControlBoardSettings()
+            )
+
+        min_allowed = (
+            settings_obj.cooling_min_setpoint
+            if 10 <= settings_obj.cooling_min_setpoint <= COOLING_CURVE_MAX_TEMP
+            else COOLING_CURVE_MIN_TEMP_DEFAULT
+        )
+        mild_temp = _parse_optional_curve_temp("mild_temperature", min_allowed)
+        peak_temp = _parse_optional_curve_temp("peak_temperature", min_allowed)
+
+        payload = settings_obj.build_cooling_payload(
+            enabled=raw_enabled,
+            mild_temperature=mild_temp,
+            peak_temperature=peak_temp,
+        )
+
+        try:
+            token = await _async_get_token(data)
+            cb_id = await _async_get_control_board_id(data, token)
+
+            if hasattr(client, "async_patch_control_board_settings"):
+                req_id = await client.async_patch_control_board_settings(
+                    control_board_id=cb_id,
+                    token=token,
+                    settings=payload,
+                )
+            else:
+                req_id = await client.async_set_cooling_settings(
+                    control_board_id=cb_id,
+                    token=token,
+                    cooling_payload=payload,
+                )
+
+            await client.async_poll_settings_request(
+                control_board_id=cb_id,
+                request_id=req_id,
+                token=token,
+            )
+            await data.data_coordinator.async_request_refresh()
+            if hasattr(data, "settings_coordinator") and data.settings_coordinator:
+                await data.settings_coordinator.async_request_refresh()
+        except HomeAssistantError:
+            raise
+        except WeheatError as err:
+            raise HomeAssistantError(
+                f"Failed to configure cooling for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except ClientResponseError as err:
+            raise HomeAssistantError(
+                f"Communication error configuring cooling for heat pump {data.heat_pump_info.heatpump_id}: "
+                f"HTTP {err.status} ({err.message})"
+            ) from err
+        except (ClientError, TimeoutError) as err:
+            raise HomeAssistantError(
+                f"Communication error configuring cooling for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+        except Exception as err:
+            raise HomeAssistantError(
+                f"Unexpected error configuring cooling for heat pump {data.heat_pump_info.heatpump_id}: {err}"
+            ) from err
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Register all Weheat integration custom actions/services."""
     if not hasattr(hass, "services"):
@@ -741,11 +856,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_TRIGGER_LEGIONELLA,
         lambda call: async_handle_trigger_legionella(hass, call),
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_COOLING,
+        lambda call: async_handle_set_cooling(hass, call),
+    )
     _LOGGER.info(
-        "Registered Weheat custom actions: %s, %s, %s",
+        "Registered Weheat custom actions: %s, %s, %s, %s",
         SERVICE_SET_QUIET_MODE,
         SERVICE_SET_SILENT_SCHEDULE,
         SERVICE_TRIGGER_LEGIONELLA,
+        SERVICE_SET_COOLING,
     )
 
 
@@ -758,6 +879,7 @@ async def async_unload_services(hass: HomeAssistant) -> None:
         SERVICE_SET_QUIET_MODE,
         SERVICE_SET_SILENT_SCHEDULE,
         SERVICE_TRIGGER_LEGIONELLA,
+        SERVICE_SET_COOLING,
     ):
         if hasattr(hass.services, "has_service") and hass.services.has_service(
             DOMAIN, service

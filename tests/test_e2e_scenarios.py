@@ -626,8 +626,8 @@ async def test_scenario_multi_pump_residential_and_annex_coordination(
         for s in created_switches
         if s.heat_pump_info.heatpump_id == TEST_HP_UUID_SPARROW
     ]
-    assert len(main_switches) == 3
-    assert len(annex_switches) == 1
+    assert len(main_switches) == 4
+    assert len(annex_switches) == 2
 
     # Main pump gets all sensors (39: 15 base + 7 cooling + 4 dhw + 3 dhw energy + 10 energy); Annex gets non-DHW sensors (32)
     all_main_sensors = (

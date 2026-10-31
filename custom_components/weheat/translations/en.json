@@ -74,6 +74,24 @@
     "trigger_legionella_prevention": {
       "name": "Trigger legionella prevention",
       "description": "Manually trigger a one-shot Legionella thermal disinfection cycle on the Weheat heat pump."
+    },
+    "set_cooling": {
+      "name": "Set cooling mode and curve",
+      "description": "Enable or disable cooling mode and optionally configure the 2-point cooling curve water target temperatures at 22°C outside (mild day) and 40°C outside (peak-summer day).",
+      "fields": {
+        "enabled": {
+          "name": "Cooling mode enabled",
+          "description": "Enable or disable cooling mode on the heat pump."
+        },
+        "mild_temperature": {
+          "name": "Cooling water target at 22°C outside",
+          "description": "Target cooling water temperature (°C) on a mild day (22°C outside)."
+        },
+        "peak_temperature": {
+          "name": "Cooling water target at 40°C outside",
+          "description": "Target cooling water temperature (°C) on a peak-summer day (40°C outside)."
+        }
+      }
     }
   },
   "entity": {
@@ -354,6 +372,9 @@
       "silent_hours_schedule_enabled": {
         "name": "Silent hours schedule"
       },
+      "cooling_mode": {
+        "name": "Cooling mode"
+      },
       "legionella_prevention": {
         "name": "Legionella prevention"
       },
@@ -416,6 +437,12 @@
     "number": {
       "dhw_target_temperature": {
         "name": "DHW target temperature"
+      },
+      "cooling_curve_mild_temperature": {
+        "name": "Cooling water target at 22°C outside"
+      },
+      "cooling_curve_peak_temperature": {
+        "name": "Cooling water target at 40°C outside"
       }
     }
   }

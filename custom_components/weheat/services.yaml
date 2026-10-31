@@ -96,3 +96,44 @@ trigger_legionella_prevention:
       integration: weheat
     entity:
       integration: weheat
+
+set_cooling:
+  name: Set cooling mode and curve
+  description: Enable or disable cooling mode and optionally configure the 2-point cooling curve water target temperatures at 22°C outside (mild day) and 40°C outside (peak-summer day).
+  target:
+    device:
+      integration: weheat
+    entity:
+      integration: weheat
+  fields:
+    enabled:
+      name: Cooling mode enabled
+      description: Enable or disable cooling mode on the heat pump.
+      required: true
+      example: true
+      selector:
+        boolean: {}
+    mild_temperature:
+      name: Cooling water target at 22°C outside
+      description: Target cooling water temperature (°C) on a mild day (22°C outside). Lower values provide stronger cooling.
+      required: false
+      example: 18
+      selector:
+        number:
+          min: 15
+          max: 22
+          step: 1
+          unit_of_measurement: "°C"
+          mode: box
+    peak_temperature:
+      name: Cooling water target at 40°C outside
+      description: Target cooling water temperature (°C) on a peak-summer day (40°C outside). Slightly higher water temperatures reduce condensation risk in humid weather.
+      required: false
+      example: 20
+      selector:
+        number:
+          min: 15
+          max: 22
+          step: 1
+          unit_of_measurement: "°C"
+          mode: box

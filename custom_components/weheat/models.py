@@ -8,7 +8,13 @@ from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from typing import Any
 
-from .const import DAYS_OF_WEEK
+from .const import (
+    COOLING_CURVE_MAX_TEMP,
+    COOLING_CURVE_MIN_TEMP_DEFAULT,
+    DAYS_OF_WEEK,
+    DEFAULT_COOLING_CURVE_X,
+    DEFAULT_COOLING_CURVE_Y,
+)
 
 # Numeric states observed during defrost cycles
 DEFROST_STATES: frozenset[int] = frozenset({84, 90, 100, 110, 120, *range(200, 240)})
@@ -215,6 +221,24 @@ class CoolingStatus(IntEnum):
     ACTIVE = 2
     STOPPING = 3
     STANDBY = 4
+
+
+class CoolingControlMethod(IntEnum):
+    """Cooling control method reported by installation settings."""
+
+    NONE = 0
+    FIXED_SETPOINT = 1
+    COOLING_CURVE = 2
+    WEHEAT_INTELLIGENCE = 3
+    OPEN_THERM = 4
+
+
+class CoolingEnabledState(IntEnum):
+    """Cooling enabled state reported by installation settings."""
+
+    UNSET = 0
+    OFF = 1
+    ENABLED = 2
 
 
 class ControlMethod(IntEnum):
@@ -890,11 +914,21 @@ class DailySilentSchedule:
 
 @dataclass
 class ControlBoardSettings:
-    """Strongly typed control board settings including quiet schedule."""
+    """Strongly typed control board settings including quiet schedule and cooling."""
 
     performance_mode_preset: int = 0
     silent_hours_preset: int = 0
     dhw_target_temperature: float = 50.0
+    cooling_control_method: int = 0
+    cooling_enabled: int | None = None
+    cooling_min_setpoint: int = COOLING_CURVE_MIN_TEMP_DEFAULT
+    cooling_curve_x: list[int] = field(
+        default_factory=lambda: list(DEFAULT_COOLING_CURVE_X)
+    )
+    cooling_curve_y: list[int] = field(
+        default_factory=lambda: list(DEFAULT_COOLING_CURVE_Y)
+    )
+    consumer_cooling_setpoint: int = 18
     schedules: dict[str, DailySilentSchedule] = field(default_factory=dict)
     raw_settings: dict[str, Any] = field(default_factory=dict)
 
@@ -906,6 +940,42 @@ class ControlBoardSettings:
     @silent_hours_scheduled_preset.setter
     def silent_hours_scheduled_preset(self, value: int) -> None:
         self.silent_hours_preset = int(value)
+
+    @property
+    def is_cooling_enabled(self) -> bool:
+        """Return True if cooling mode is enabled per Weheat Portal logic.
+
+        Matches portal getIsCoolingEnabled({ coolingEnabled, coolingControlMethod }):
+        !isCoolingControlMethodUnset(coolingControlMethod) &&
+        (isCoolingEnabledUnset(coolingEnabled) || coolingEnabled === CoolingEnabled.Enabled)
+        """
+        method_unset = self.cooling_control_method in (
+            None,
+            CoolingControlMethod.NONE,
+        )
+        enabled_unset = self.cooling_enabled in (
+            None,
+            CoolingEnabledState.UNSET,
+        )
+        return not method_unset and (
+            enabled_unset or self.cooling_enabled == CoolingEnabledState.ENABLED
+        )
+
+    @property
+    def cooling_curve_mild_temperature(self) -> int:
+        """Return cooling water target temperature (°C) at 22°C outside."""
+        if isinstance(self.cooling_curve_y, list) and len(self.cooling_curve_y) >= 1:
+            with contextlib.suppress(ValueError, TypeError):
+                return int(self.cooling_curve_y[0])
+        return DEFAULT_COOLING_CURVE_Y[0]
+
+    @property
+    def cooling_curve_peak_temperature(self) -> int:
+        """Return cooling water target temperature (°C) at 40°C outside."""
+        if isinstance(self.cooling_curve_y, list) and len(self.cooling_curve_y) >= 2:
+            with contextlib.suppress(ValueError, TypeError):
+                return int(self.cooling_curve_y[1])
+        return DEFAULT_COOLING_CURVE_Y[1]
 
     @classmethod
     def from_api_dict(cls, data: dict[str, Any] | None) -> ControlBoardSettings:
@@ -925,9 +995,7 @@ class ControlBoardSettings:
             nested_settings if isinstance(nested_settings, dict) else data
         )
 
-        def _get_val(
-            camel_key: str, pascal_key: str, default: Any, val_type: type = int
-        ) -> Any:
+        def _get_raw(camel_key: str, pascal_key: str) -> Any:
             val = None
             if isinstance(settings_dict, dict):
                 val = settings_dict.get(camel_key)
@@ -937,12 +1005,31 @@ class ControlBoardSettings:
                 val = data.get(camel_key)
                 if val is None:
                     val = data.get(pascal_key)
+            return val
+
+        def _get_val(
+            camel_key: str, pascal_key: str, default: Any, val_type: type = int
+        ) -> Any:
+            val = _get_raw(camel_key, pascal_key)
             if val is None:
+                return default
+            if isinstance(val, bool) and val_type is int:
                 return default
             try:
                 return val_type(val)
             except (ValueError, TypeError):
                 return default
+
+        def _get_int_list(
+            camel_key: str, pascal_key: str, default: tuple[int, int]
+        ) -> list[int]:
+            val = _get_raw(camel_key, pascal_key)
+            if isinstance(val, (list, tuple)) and len(val) >= 2:
+                try:
+                    return [int(val[0]), int(val[1])]
+                except (ValueError, TypeError):
+                    return list(default)
+            return list(default)
 
         schedules: dict[str, DailySilentSchedule] = {}
         for day in DAYS_OF_WEEK:
@@ -967,6 +1054,14 @@ class ControlBoardSettings:
             with contextlib.suppress(ValueError, TypeError):
                 dhw_default = float(data["dhw"]["targetTemperature"])
 
+        raw_cooling_enabled = _get_raw("coolingEnabled", "CoolingEnabled")
+        cooling_enabled: int | None = None
+        if raw_cooling_enabled is not None and not isinstance(
+            raw_cooling_enabled, bool
+        ):
+            with contextlib.suppress(ValueError, TypeError):
+                cooling_enabled = int(raw_cooling_enabled)
+
         return cls(
             performance_mode_preset=_get_val(
                 "performanceModePreset", "PerformanceModePreset", 0, int
@@ -977,9 +1072,96 @@ class ControlBoardSettings:
             dhw_target_temperature=_get_val(
                 "dhwTargetTemperature", "DhwTargetTemperature", dhw_default, float
             ),
+            cooling_control_method=_get_val(
+                "coolingControlMethod", "CoolingControlMethod", 0, int
+            ),
+            cooling_enabled=cooling_enabled,
+            cooling_min_setpoint=_get_val(
+                "coolingMinSetpoint",
+                "CoolingMinSetpoint",
+                COOLING_CURVE_MIN_TEMP_DEFAULT,
+                int,
+            ),
+            cooling_curve_x=_get_int_list(
+                "coolingCurveX", "CoolingCurveX", DEFAULT_COOLING_CURVE_X
+            ),
+            cooling_curve_y=_get_int_list(
+                "coolingCurveY", "CoolingCurveY", DEFAULT_COOLING_CURVE_Y
+            ),
+            consumer_cooling_setpoint=_get_val(
+                "consumerCoolingSetpoint", "ConsumerCoolingSetpoint", 18, int
+            ),
             schedules=schedules,
             raw_settings=settings_dict,
         )
+
+    def build_cooling_payload(
+        self,
+        enabled: bool | None = None,
+        mild_temperature: int | None = None,
+        peak_temperature: int | None = None,
+    ) -> dict[str, Any]:
+        """Build the portal-compliant PATCH payload for cooling mode and cooling curve.
+
+        Mirrors the exact 3-branch handleSubmit logic in the Weheat Portal Cooling tab:
+        - Always includes CoolingCurveY: [mild_temp_at_22c, peak_temp_at_40c].
+        - If coolingEnabled is unset (None or 0): sets CoolingControlMethod to
+          CoolingCurve (2) when enabled else None (0).
+        - Else if enabling cooling while coolingControlMethod is unset (None or 0):
+          sets both CoolingEnabled: Enabled (2) and CoolingControlMethod: CoolingCurve (2).
+        - Else: sets CoolingEnabled to Enabled (2) when enabled else Off (1).
+        """
+        target_enabled = self.is_cooling_enabled if enabled is None else bool(enabled)
+        y0 = (
+            self.cooling_curve_mild_temperature
+            if mild_temperature is None
+            else int(mild_temperature)
+        )
+        y1 = (
+            self.cooling_curve_peak_temperature
+            if peak_temperature is None
+            else int(peak_temperature)
+        )
+
+        min_temp = max(10, min(self.cooling_min_setpoint, COOLING_CURVE_MAX_TEMP))
+        y0 = max(min_temp, min(COOLING_CURVE_MAX_TEMP, y0))
+        y1 = max(min_temp, min(COOLING_CURVE_MAX_TEMP, y1))
+
+        payload_settings: dict[str, Any] = {
+            "CoolingCurveY": [y0, y1],
+        }
+
+        enabled_unset = self.cooling_enabled in (
+            None,
+            CoolingEnabledState.UNSET,
+        )
+        method_unset = self.cooling_control_method in (
+            None,
+            CoolingControlMethod.NONE,
+        )
+
+        if enabled_unset:
+            payload_settings["CoolingControlMethod"] = int(
+                CoolingControlMethod.COOLING_CURVE
+                if target_enabled
+                else CoolingControlMethod.NONE
+            )
+        elif target_enabled and method_unset:
+            payload_settings["CoolingEnabled"] = int(CoolingEnabledState.ENABLED)
+            payload_settings["CoolingControlMethod"] = int(
+                CoolingControlMethod.COOLING_CURVE
+            )
+        else:
+            payload_settings["CoolingEnabled"] = int(
+                CoolingEnabledState.ENABLED
+                if target_enabled
+                else CoolingEnabledState.OFF
+            )
+
+        return {
+            "settings": payload_settings,
+            "updateImmediately": False,
+        }
 
     def build_bundled_silent_schedule_payload(
         self,

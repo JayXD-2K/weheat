@@ -59,6 +59,11 @@ SWITCH_DESCRIPTIONS: tuple[WeheatSwitchEntityDescription, ...] = (
     ),
 )
 
+COOLING_SWITCH_DESCRIPTION = WeheatSwitchEntityDescription(
+    key="cooling_mode",
+    translation_key="cooling_mode",
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -73,7 +78,7 @@ async def async_setup_entry(
         client = weheatdata.client
         session = weheatdata.session
 
-        # 1. Silent Hours Schedule Switch (binds to settings coordinator if available, else data_coordinator)
+        # 1. Silent Hours Schedule & Cooling Mode Switches (bind to settings coordinator if available, else data_coordinator)
         settings_coord = getattr(weheatdata, "settings_coordinator", None)
         schedule_coord = settings_coord or weheatdata.data_coordinator
 
@@ -82,6 +87,15 @@ async def async_setup_entry(
                 heat_pump_info=info,
                 coordinator=schedule_coord,
                 entity_description=SWITCH_DESCRIPTIONS[0],
+                client=client,
+                session=session,
+            )
+        )
+        entities.append(
+            WeheatCoolingModeSwitch(
+                heat_pump_info=info,
+                coordinator=schedule_coord,
+                entity_description=COOLING_SWITCH_DESCRIPTION,
                 client=client,
                 session=session,
             )
@@ -320,6 +334,128 @@ class WeheatSilentHoursScheduleSwitch(WeheatEntity, SwitchEntity):
             raise HomeAssistantError(
                 f"Unexpected error disabling silent hours schedule: {err}"
             ) from err
+
+
+class WeheatCoolingModeSwitch(WeheatEntity, SwitchEntity):
+    """Switch entity to enable or disable heat pump Cooling mode."""
+
+    entity_description: WeheatSwitchEntityDescription
+
+    def __init__(
+        self,
+        heat_pump_info: HeatPumpInfo,
+        coordinator: Any,
+        entity_description: WeheatSwitchEntityDescription,
+        client: WeheatClient | None = None,
+        session: Any | None = None,
+    ) -> None:
+        """Initialize the cooling mode switch entity."""
+        super().__init__(heat_pump_info, coordinator, entity_description)
+        self._client = client
+        self._session = session
+        self._attr_icon = "mdi:snowflake"
+
+    async def _async_get_token(self) -> str | None:
+        """Retrieve valid OAuth2 Bearer access token."""
+        if self._session is not None:
+            if hasattr(self._session, "check_portal_auth"):
+                self._session.check_portal_auth()
+            await self._session.async_ensure_token_valid()
+            return self._session.token.get(CONF_ACCESS_TOKEN)
+        return None
+
+    async def _async_get_control_board_id(self, token: str | None = None) -> str:
+        """Resolve target control board ID."""
+        if self.heat_pump_info.control_board_id:
+            return self.heat_pump_info.control_board_id
+        if self._client is not None:
+            return await self._client.async_get_control_board_id(
+                self.heat_pump_info.heatpump_id, token=token
+            )
+        raise HomeAssistantError("No client available to resolve control board ID")
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if Cooling mode is enabled in installation settings."""
+        data = self.coordinator.data
+        if data is None:
+            return None
+
+        if isinstance(data, ControlBoardSettings) or hasattr(
+            data, "is_cooling_enabled"
+        ):
+            return bool(data.is_cooling_enabled)
+        if isinstance(data, dict):
+            return ControlBoardSettings.from_api_dict(data).is_cooling_enabled
+        if hasattr(data, "state"):
+            return data.state == HeatPumpState.COOLING
+        return False
+
+    async def _async_set_cooling(self, enabled: bool) -> None:
+        """Enable or disable cooling mode using the portal's 3-branch settings logic."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
+        if self._client is None:
+            raise HomeAssistantError("Weheat client is not available")
+
+        action_str = "enable" if enabled else "disable"
+        try:
+            token = await self._async_get_token()
+            control_board_id = await self._async_get_control_board_id(token)
+
+            settings_data = (
+                self.coordinator.data
+                if isinstance(self.coordinator.data, ControlBoardSettings)
+                else (
+                    ControlBoardSettings.from_api_dict(self.coordinator.data)
+                    if isinstance(self.coordinator.data, dict)
+                    else ControlBoardSettings()
+                )
+            )
+            payload = settings_data.build_cooling_payload(enabled=enabled)
+
+            if hasattr(self._client, "async_patch_control_board_settings"):
+                request_id = await self._client.async_patch_control_board_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    settings=payload,
+                )
+            else:
+                request_id = await self._client.async_set_cooling_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    cooling_payload=payload,
+                )
+
+            await self._client.async_poll_settings_request(
+                control_board_id=control_board_id,
+                request_id=request_id,
+                token=token,
+            )
+            await self.coordinator.async_request_refresh()
+        except WeheatError as err:
+            _LOGGER.error("Failed to %s cooling mode: %s", action_str, err)
+            raise HomeAssistantError(
+                f"Failed to {action_str} cooling mode: {err}"
+            ) from err
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _LOGGER.error(
+                "Unexpected error trying to %s cooling mode: %s", action_str, err
+            )
+            raise HomeAssistantError(
+                f"Unexpected error trying to {action_str} cooling mode: {err}"
+            ) from err
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable cooling mode."""
+        await self._async_set_cooling(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable cooling mode."""
+        await self._async_set_cooling(False)
 
 
 class WeheatLegionellaPreventionSwitch(WeheatEntity, SwitchEntity):

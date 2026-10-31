@@ -786,6 +786,60 @@ class WeheatClient:
             update_immediately=False,
         )
 
+    async def async_set_cooling_settings(
+        self,
+        control_board_id: str,
+        token: str | None = None,
+        cooling_payload: dict[str, Any] | None = None,
+        enabled: bool | None = None,
+        cooling_curve_y: list[int] | None = None,
+    ) -> str:
+        """Configure cooling mode and 2-point cooling curve on the control board.
+
+        Args:
+            control_board_id: Target control board ID.
+            token: Access token for Bearer authorization.
+            cooling_payload: Pre-built cooling payload from ControlBoardSettings.build_cooling_payload.
+            enabled: Optional cooling mode enabled flag when cooling_payload is not provided.
+            cooling_curve_y: Optional 2-element list [mild_22c_temp, peak_40c_temp] in °C.
+
+        Returns:
+            The settingsRequestId string.
+        """
+        if cooling_payload is not None:
+            return await self.async_patch_control_board_settings(
+                control_board_id=control_board_id,
+                token=token,
+                settings=cooling_payload,
+                update_immediately=False,
+            )
+
+        curve_y = cooling_curve_y if cooling_curve_y is not None else [18, 20]
+        if (
+            not isinstance(curve_y, (list, tuple))
+            or len(curve_y) != 2
+            or any(
+                isinstance(v, bool) or not isinstance(v, int) or not (10 <= v <= 22)
+                for v in curve_y
+            )
+        ):
+            raise ValueError(
+                f"Invalid cooling_curve_y {cooling_curve_y}; must be two integers between 10 and 22 °C."
+            )
+
+        settings_dict: dict[str, Any] = {
+            "CoolingCurveY": [int(curve_y[0]), int(curve_y[1])],
+        }
+        if enabled is not None:
+            settings_dict["CoolingControlMethod"] = 2 if enabled else 0
+
+        return await self.async_patch_control_board_settings(
+            control_board_id=control_board_id,
+            token=token,
+            settings=settings_dict,
+            update_immediately=False,
+        )
+
     # -------------------------------------------------------------------------
     # Asynchronous Status Polling
     # -------------------------------------------------------------------------

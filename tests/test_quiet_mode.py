@@ -513,8 +513,8 @@ async def test_async_setup_entry_select_and_switch(
 
     added_switches: list[Any] = []
     await async_setup_switch_entry(hass, entry, added_switches.extend)
-    # mock_hp_info has has_dhw=True, so 3 switches: schedule, legionella, dhw_boost
-    assert len(added_switches) == 3
+    # mock_hp_info has has_dhw=True, so 4 switches: schedule, cooling_mode, legionella, dhw_boost
+    assert len(added_switches) == 4
 
 
 def test_time_entity_day_names() -> None:

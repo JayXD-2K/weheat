@@ -899,8 +899,8 @@ async def test_dhw_gating_heat_pump_without_dhw_never_instantiates_dhw_switches(
     added_entities: list[Any] = []
     await async_setup_switch_entry(MagicMock(), entry, added_entities.extend)
 
-    # Exactly 1 switch entity should be created: Silent Hours Schedule Switch
-    assert len(added_entities) == 1
+    # 2 switch entities should be created: Silent Hours Schedule & Cooling Mode
+    assert len(added_entities) == 2
     assert isinstance(added_entities[0], WeheatSilentHoursScheduleSwitch)
 
     # CRITICAL: Legionella and DHW Boost must NEVER be instantiated
@@ -938,8 +938,8 @@ async def test_dhw_gating_heat_pump_with_dhw_instantiates_all_switches(
     added_entities: list[Any] = []
     await async_setup_switch_entry(MagicMock(), entry, added_entities.extend)
 
-    # All 3 switch entities must be instantiated
-    assert len(added_entities) == 3
+    # All 4 switch entities must be instantiated
+    assert len(added_entities) == 4
     entity_types = {type(e) for e in added_entities}
     assert WeheatSilentHoursScheduleSwitch in entity_types
     assert WeheatLegionellaPreventionSwitch in entity_types

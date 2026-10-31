@@ -157,6 +157,9 @@
       "silent_hours_schedule_enabled": {
         "default": "mdi:clock-outline"
       },
+      "cooling_mode": {
+        "default": "mdi:snowflake"
+      },
       "legionella_prevention": {
         "default": "mdi:bacteria-outline"
       },
@@ -219,6 +222,12 @@
     "number": {
       "dhw_target_temperature": {
         "default": "mdi:water-boiler"
+      },
+      "cooling_curve_mild_temperature": {
+        "default": "mdi:snowflake-thermometer"
+      },
+      "cooling_curve_peak_temperature": {
+        "default": "mdi:snowflake-thermometer"
       }
     }
   }

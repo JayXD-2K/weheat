@@ -195,21 +195,61 @@ class ButtonEntity(Entity):
         raise NotImplementedError
 
 
+class NumberDeviceClass(StrEnum):
+    TEMPERATURE = "temperature"
+
+
+class NumberMode(StrEnum):
+    AUTO = "auto"
+    BOX = "box"
+    SLIDER = "slider"
+
+
 @dataclass(frozen=True, kw_only=True)
 class NumberEntityDescription(EntityDescription):
     native_max_value: float = 100.0
     native_min_value: float = 0.0
     native_step: float = 1.0
+    native_unit_of_measurement: str | None = None
+    mode: Any = None
 
 
 class NumberEntity(Entity):
     """Mock NumberEntity."""
 
     _attr_native_value: float | None = None
+    _attr_native_min_value: float = 0.0
+    _attr_native_max_value: float = 100.0
+    _attr_native_step: float = 1.0
+    _attr_mode: Any = NumberMode.AUTO
 
     @property
     def native_value(self) -> float | None:
         return self._attr_native_value
+
+    @property
+    def native_min_value(self) -> float:
+        if hasattr(self, "entity_description") and hasattr(
+            self.entity_description, "native_min_value"
+        ):
+            return float(self.entity_description.native_min_value)
+        return self._attr_native_min_value
+
+    @property
+    def native_max_value(self) -> float:
+        if hasattr(self, "entity_description") and hasattr(
+            self.entity_description, "native_max_value"
+        ):
+            return float(self.entity_description.native_max_value)
+        return self._attr_native_max_value
+
+    @property
+    def native_step(self) -> float:
+        if hasattr(self, "entity_description") and hasattr(
+            self.entity_description, "native_step"
+        ):
+            return float(self.entity_description.native_step)
+        return self._attr_native_step
 
     async def async_set_native_value(self, value: float) -> None:
         raise NotImplementedError
@@ -765,8 +805,10 @@ def install_ha_stubs() -> None:
     ha_components_button.ButtonEntityDescription = ButtonEntityDescription
 
     ha_components_number = types.ModuleType("homeassistant.components.number")
+    ha_components_number.NumberDeviceClass = NumberDeviceClass
     ha_components_number.NumberEntity = NumberEntity
     ha_components_number.NumberEntityDescription = NumberEntityDescription
+    ha_components_number.NumberMode = NumberMode
 
     sys.modules["homeassistant"] = ha
     sys.modules["homeassistant.const"] = ha_const
