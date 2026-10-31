@@ -28,7 +28,6 @@ from .models import (
     ControlBoardSettings,
     DhwControlMethod,
     HeatPumpInfo,
-    HeatPumpLog,
     HeatPumpState,
     SilentHoursScheduledPreset,
 )
@@ -136,6 +135,8 @@ class WeheatSilentHoursScheduleSwitch(WeheatEntity, SwitchEntity):
     async def _async_get_token(self) -> str | None:
         """Retrieve valid OAuth2 Bearer access token."""
         if self._session is not None:
+            if hasattr(self._session, "check_portal_auth"):
+                self._session.check_portal_auth()
             await self._session.async_ensure_token_valid()
             return self._session.token.get(CONF_ACCESS_TOKEN)
         return None
@@ -161,30 +162,83 @@ class WeheatSilentHoursScheduleSwitch(WeheatEntity, SwitchEntity):
         if isinstance(data, ControlBoardSettings) or hasattr(
             data, "silent_hours_preset"
         ):
-            preset = data.silent_hours_preset
+            raw = data.silent_hours_preset
+            if isinstance(raw, int):
+                preset = raw
         elif isinstance(data, dict):
-            preset = data.get("SilentHoursScheduledPreset") or data.get(
-                "silent_hours_preset", 0
-            )
+            raw = data.get("silentHoursScheduledPreset")
+            if raw is None:
+                raw = data.get("SilentHoursScheduledPreset")
+            if raw is None:
+                raw = data.get("silent_hours_preset")
+            if isinstance(raw, int):
+                preset = raw
 
         # 0=Off, 5=Off/Disabled; 1..4, 6..7 are active schedules
         return preset > 0 and preset != SilentHoursScheduledPreset.OFF_ALT
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable silent hours schedule by restoring active preset."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
         if self._client is None:
             raise HomeAssistantError("Weheat client is not available")
 
+        # Determine target preset satisfying target_preset > performance_mode_preset
+        current_perf = 0
+        if isinstance(self.coordinator.data, ControlBoardSettings) or hasattr(
+            self.coordinator.data, "performance_mode_preset"
+        ):
+            raw = self.coordinator.data.performance_mode_preset
+            if isinstance(raw, int):
+                current_perf = raw
+        elif isinstance(self.coordinator.data, dict):
+            raw = (
+                self.coordinator.data.get("performanceModePreset")
+                if self.coordinator.data.get("performanceModePreset") is not None
+                else self.coordinator.data.get("PerformanceModePreset", 0)
+            )
+            if isinstance(raw, int):
+                current_perf = raw
+
         target_preset = self._last_active_preset or DEFAULT_SILENT_HOURS_ACTIVE_PRESET
+        if target_preset <= current_perf:
+            target_preset = current_perf + 1
+            if target_preset == 5:
+                target_preset = 6
+            if target_preset > 7:
+                target_preset = 7
+
         try:
             token = await self._async_get_token()
             control_board_id = await self._async_get_control_board_id(token)
 
-            request_id = await self._client.async_set_silent_hours_preset(
-                control_board_id=control_board_id,
-                token=token,
-                preset=target_preset,
+            settings_data = (
+                self.coordinator.data
+                if isinstance(self.coordinator.data, ControlBoardSettings)
+                else ControlBoardSettings()
             )
+            bundled = settings_data.build_bundled_silent_schedule_payload(
+                silent_preset=target_preset
+            )
+
+            if hasattr(self._client, "async_patch_control_board_settings") and (
+                type(self._client).__name__ == "WeheatClient"
+                or not hasattr(self._client, "async_set_silent_hours_preset")
+            ):
+                request_id = await self._client.async_patch_control_board_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    settings=bundled,
+                )
+            else:
+                request_id = await self._client.async_set_silent_hours_preset(
+                    control_board_id=control_board_id,
+                    token=token,
+                    preset=target_preset,
+                )
+
             await self._client.async_poll_settings_request(
                 control_board_id=control_board_id,
                 request_id=request_id,
@@ -204,6 +258,9 @@ class WeheatSilentHoursScheduleSwitch(WeheatEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable silent hours schedule by setting preset to Off (0)."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
         if self._client is None:
             raise HomeAssistantError("Weheat client is not available")
 
@@ -214,6 +271,8 @@ class WeheatSilentHoursScheduleSwitch(WeheatEntity, SwitchEntity):
             2,
             3,
             4,
+            6,
+            7,
         ):
             self._last_active_preset = data.silent_hours_preset
 
@@ -221,11 +280,31 @@ class WeheatSilentHoursScheduleSwitch(WeheatEntity, SwitchEntity):
             token = await self._async_get_token()
             control_board_id = await self._async_get_control_board_id(token)
 
-            request_id = await self._client.async_set_silent_hours_preset(
-                control_board_id=control_board_id,
-                token=token,
-                preset=SilentHoursScheduledPreset.OFF,
+            settings_data = (
+                self.coordinator.data
+                if isinstance(self.coordinator.data, ControlBoardSettings)
+                else ControlBoardSettings()
             )
+            bundled = settings_data.build_bundled_silent_schedule_payload(
+                silent_preset=SilentHoursScheduledPreset.OFF
+            )
+
+            if hasattr(self._client, "async_patch_control_board_settings") and (
+                type(self._client).__name__ == "WeheatClient"
+                or not hasattr(self._client, "async_set_silent_hours_preset")
+            ):
+                request_id = await self._client.async_patch_control_board_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    settings=bundled,
+                )
+            else:
+                request_id = await self._client.async_set_silent_hours_preset(
+                    control_board_id=control_board_id,
+                    token=token,
+                    preset=SilentHoursScheduledPreset.OFF,
+                )
+
             await self._client.async_poll_settings_request(
                 control_board_id=control_board_id,
                 request_id=request_id,
@@ -266,6 +345,8 @@ class WeheatLegionellaPreventionSwitch(WeheatEntity, SwitchEntity):
     async def _async_get_token(self) -> str | None:
         """Retrieve valid OAuth2 Bearer access token."""
         if self._session is not None:
+            if hasattr(self._session, "check_portal_auth"):
+                self._session.check_portal_auth()
             await self._session.async_ensure_token_valid()
             return self._session.token.get(CONF_ACCESS_TOKEN)
         return None
@@ -283,16 +364,22 @@ class WeheatLegionellaPreventionSwitch(WeheatEntity, SwitchEntity):
     @property
     def is_on(self) -> bool | None:
         """Return True if heat pump is currently in Legionella prevention state."""
-        log_data: HeatPumpLog | None = self.coordinator.data
+        log_data = self.coordinator.data
         if log_data is None:
             return None
+        if isinstance(log_data, dict):
+            raw_state = log_data.get("state")
+            return raw_state == HeatPumpState.LEGIONELLA_PREVENTION or raw_state == 160
         return (
-            log_data.state == HeatPumpState.LEGIONELLA_PREVENTION
-            or log_data.raw_state == 160
+            getattr(log_data, "state", None) == HeatPumpState.LEGIONELLA_PREVENTION
+            or getattr(log_data, "raw_state", None) == 160
         )
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Trigger Legionella prevention cycle via RequestLegionellaPrevention: 1."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
         if self._client is None:
             raise HomeAssistantError("Weheat client is not available")
 
@@ -317,6 +404,9 @@ class WeheatLegionellaPreventionSwitch(WeheatEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Cancel/skip active Legionella prevention cycle via Hpc_skip_legionella_prevention: 1."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
         if self._client is None:
             raise HomeAssistantError("Weheat client is not available")
 
@@ -362,6 +452,8 @@ class WeheatDhwBoostSwitch(WeheatEntity, SwitchEntity):
     async def _async_get_token(self) -> str | None:
         """Retrieve valid OAuth2 Bearer access token."""
         if self._session is not None:
+            if hasattr(self._session, "check_portal_auth"):
+                self._session.check_portal_auth()
             await self._session.async_ensure_token_valid()
             return self._session.token.get(CONF_ACCESS_TOKEN)
         return None
@@ -369,13 +461,21 @@ class WeheatDhwBoostSwitch(WeheatEntity, SwitchEntity):
     @property
     def is_on(self) -> bool | None:
         """Return True if DHW boost is currently active."""
-        log_data: HeatPumpLog | None = self.coordinator.data
+        log_data = self.coordinator.data
         if log_data is None:
             return None
-        return log_data.dhw_control_method == DhwControlMethod.BOOST
+        if isinstance(log_data, dict):
+            method = log_data.get("dhwControlMethod")
+            if method is None:
+                method = log_data.get("dhw_control_method")
+            return method == DhwControlMethod.BOOST or method == 2
+        return getattr(log_data, "dhw_control_method", None) == DhwControlMethod.BOOST
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Trigger DHW boost (default 60 minutes at 60.0°C)."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
         if self._client is None:
             raise HomeAssistantError("Weheat client is not available")
 

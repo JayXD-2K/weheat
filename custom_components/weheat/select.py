@@ -1,8 +1,26 @@
 """Select platform for Weheat integration.
 
 Provides:
-- Performance Mode Preset Select Entity (0=Performance, 1=Silent 1, 2=Silent 2, 3=Silent 3, 4=Silent 4)
-- Silent Hours Scheduled Preset Select Entity (0=Off, 1=Silent 1, 2=Silent 2, 3=Silent 3, 4=Silent 4)
+- Performance Mode Preset Select Entity:
+  Maps to the Weheat Portal UI "Quiet level" daytime slider:
+  0=Performance ("Extra savings" / Maximum power, unrestricted compressor/fan speed)
+  1=Silent 1 (Quiet level 1, mild noise reduction)
+  2=Silent 2 (Quiet level 2, moderate noise reduction)
+  3=Silent 3 (Quiet level 3, high noise reduction)
+  4=Silent 4 ("Extra quiet" / Quiet level 4, lowest daytime power limit)
+
+- Silent Hours Scheduled Preset Select Entity:
+  Maps to the Weheat Portal UI "Night limit" preset applied during scheduled silent hours:
+  0=Off (Schedule disabled)
+  1=Silent 1 (Level 1 night limit / highest night heating capacity)
+  2=Silent 2 (Level 2 night limit)
+  3=Silent 3 (Level 3 night limit)
+  4=Silent 4 (Level 4 night limit)
+  6=Silent 6 (Level 6 night limit, ultra quiet)
+  7=Silent 7 (Level 7 night limit, maximum quietness)
+
+Firmware constraint: When Night Limit is active (preset not in {0, 5}),
+SilentHoursScheduledPreset must be strictly greater than PerformanceModePreset.
 """
 
 from __future__ import annotations
@@ -32,6 +50,12 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 # Performance Mode Preset (Quiet Level) Options & Mappings
+# Maps to Weheat Portal UI "Quiet level" daytime slider:
+# Performance = Extra savings / Maximum power (0)
+# Silent 1 = Quiet level 1 (1)
+# Silent 2 = Quiet level 2 (2)
+# Silent 3 = Quiet level 3 (3)
+# Silent 4 = Extra quiet / Quiet level 4 (4)
 PERFORMANCE_MODE_OPTIONS: list[str] = [
     "Performance",
     "Silent 1",
@@ -57,12 +81,22 @@ PERFORMANCE_MODE_OPTION_TO_PRESET: dict[str, int] = {
 }
 
 # Silent Hours Scheduled Preset Options & Mappings
+# Maps to Weheat Portal UI "Night limit" preset applied during scheduled window:
+# Off = Scheduled quiet hours disabled (0, 5)
+# Silent 1 = Night limit level 1 (mildest night limit / highest night heating capacity) (1)
+# Silent 2 = Night limit level 2 (moderate night noise cap) (2)
+# Silent 3 = Night limit level 3 (high night noise cap) (3)
+# Silent 4 = Night limit level 4 (very quiet night limit) (4)
+# Silent 6 = Night limit level 6 (ultra quiet night limit) (6)
+# Silent 7 = Night limit level 7 (maximum quietness / lowest night power limit) (7)
 SILENT_HOURS_OPTIONS: list[str] = [
     "Off",
     "Silent 1",
     "Silent 2",
     "Silent 3",
     "Silent 4",
+    "Silent 6",
+    "Silent 7",
 ]
 
 PRESET_TO_SILENT_HOURS_OPTION: dict[int, str] = {
@@ -72,6 +106,8 @@ PRESET_TO_SILENT_HOURS_OPTION: dict[int, str] = {
     SilentHoursScheduledPreset.SILENT_3: "Silent 3",
     SilentHoursScheduledPreset.SILENT_4: "Silent 4",
     SilentHoursScheduledPreset.OFF_ALT: "Off",  # 5 maps to Off/Disabled
+    SilentHoursScheduledPreset.SILENT_6: "Silent 6",
+    SilentHoursScheduledPreset.SILENT_7: "Silent 7",
 }
 
 SILENT_HOURS_OPTION_TO_PRESET: dict[str, int] = {
@@ -80,6 +116,8 @@ SILENT_HOURS_OPTION_TO_PRESET: dict[str, int] = {
     "Silent 2": SilentHoursScheduledPreset.SILENT_2,
     "Silent 3": SilentHoursScheduledPreset.SILENT_3,
     "Silent 4": SilentHoursScheduledPreset.SILENT_4,
+    "Silent 6": SilentHoursScheduledPreset.SILENT_6,
+    "Silent 7": SilentHoursScheduledPreset.SILENT_7,
 }
 
 
@@ -166,6 +204,8 @@ class WeheatPerformanceModeSelect(WeheatEntity, SelectEntity):
     async def _async_get_token(self) -> str | None:
         """Retrieve valid OAuth2 Bearer access token."""
         if self._session is not None:
+            if hasattr(self._session, "check_portal_auth"):
+                self._session.check_portal_auth()
             await self._session.async_ensure_token_valid()
             return self._session.token.get(CONF_ACCESS_TOKEN)
         return None
@@ -193,9 +233,11 @@ class WeheatPerformanceModeSelect(WeheatEntity, SelectEntity):
         ):
             preset = data.performance_mode_preset
         elif isinstance(data, dict):
-            preset = data.get("PerformanceModePreset") or data.get(
-                "performance_mode_preset"
-            )
+            preset = data.get("performanceModePreset")
+            if preset is None:
+                preset = data.get("PerformanceModePreset")
+            if preset is None:
+                preset = data.get("performance_mode_preset")
         else:
             return None
 
@@ -205,6 +247,9 @@ class WeheatPerformanceModeSelect(WeheatEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Change the performance mode preset and await setting completion."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
         if option not in PERFORMANCE_MODE_OPTION_TO_PRESET:
             raise ValueError(
                 f"Invalid option '{option}'. Must be one of {PERFORMANCE_MODE_OPTIONS}"
@@ -214,16 +259,65 @@ class WeheatPerformanceModeSelect(WeheatEntity, SelectEntity):
         if self._client is None:
             raise HomeAssistantError("Weheat client is not available")
 
+        # Cleanly adjust night limit if daytime preset meets or exceeds it
+        current_silent = 0
+        if isinstance(self.coordinator.data, ControlBoardSettings) or hasattr(
+            self.coordinator.data, "silent_hours_preset"
+        ):
+            raw = self.coordinator.data.silent_hours_preset
+            if isinstance(raw, int):
+                current_silent = raw
+        elif isinstance(self.coordinator.data, dict):
+            raw = (
+                self.coordinator.data.get("silentHoursScheduledPreset")
+                if self.coordinator.data.get("silentHoursScheduledPreset") is not None
+                else self.coordinator.data.get("SilentHoursScheduledPreset", 0)
+            )
+            if isinstance(raw, int):
+                current_silent = raw
+
+        target_silent = current_silent
+        if (
+            current_silent not in (0, SilentHoursScheduledPreset.OFF_ALT)
+            and preset >= current_silent
+        ):
+            target_silent = preset + 1 if preset < 4 else 6
+            _LOGGER.info(
+                "Adjusting silent hours scheduled preset to %s to satisfy firmware constraint over daytime preset %s",
+                target_silent,
+                preset,
+            )
+
         try:
             token = await self._async_get_token()
             control_board_id = await self._async_get_control_board_id(token)
 
-            # 1. Dispatch setting mutation PATCH
-            request_id = await self._client.async_set_performance_mode(
-                control_board_id=control_board_id,
-                token=token,
-                preset=preset,
+            settings_data = (
+                self.coordinator.data
+                if isinstance(self.coordinator.data, ControlBoardSettings)
+                else ControlBoardSettings()
             )
+            bundled = settings_data.build_bundled_silent_schedule_payload(
+                performance_preset=preset,
+                silent_hours_preset=target_silent,
+            )
+
+            # 1. Dispatch setting mutation PATCH
+            if hasattr(self._client, "async_patch_control_board_settings") and (
+                type(self._client).__name__ == "WeheatClient"
+                or not hasattr(self._client, "async_set_performance_mode")
+            ):
+                request_id = await self._client.async_patch_control_board_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    settings=bundled,
+                )
+            else:
+                request_id = await self._client.async_set_performance_mode(
+                    control_board_id=control_board_id,
+                    token=token,
+                    preset=preset,
+                )
 
             # 2. Await asynchronous polling until status == Succeeded (2)
             await self._client.async_poll_settings_request(
@@ -269,6 +363,8 @@ class WeheatSilentHoursPresetSelect(WeheatEntity, SelectEntity):
     async def _async_get_token(self) -> str | None:
         """Retrieve valid OAuth2 Bearer access token."""
         if self._session is not None:
+            if hasattr(self._session, "check_portal_auth"):
+                self._session.check_portal_auth()
             await self._session.async_ensure_token_valid()
             return self._session.token.get(CONF_ACCESS_TOKEN)
         return None
@@ -296,9 +392,11 @@ class WeheatSilentHoursPresetSelect(WeheatEntity, SelectEntity):
         ):
             preset = data.silent_hours_preset
         elif isinstance(data, dict):
-            preset = data.get("SilentHoursScheduledPreset") or data.get(
-                "silent_hours_preset"
-            )
+            preset = data.get("silentHoursScheduledPreset")
+            if preset is None:
+                preset = data.get("SilentHoursScheduledPreset")
+            if preset is None:
+                preset = data.get("silent_hours_preset")
         else:
             return None
 
@@ -308,6 +406,9 @@ class WeheatSilentHoursPresetSelect(WeheatEntity, SelectEntity):
 
     async def async_select_option(self, option: str) -> None:
         """Change the silent hours scheduled preset and await setting completion."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
         if option not in SILENT_HOURS_OPTION_TO_PRESET:
             raise ValueError(
                 f"Invalid option '{option}'. Must be one of {SILENT_HOURS_OPTIONS}"
@@ -317,16 +418,60 @@ class WeheatSilentHoursPresetSelect(WeheatEntity, SelectEntity):
         if self._client is None:
             raise HomeAssistantError("Weheat client is not available")
 
+        # Enforce live constraint: when Night Limit is active, preset > performance_mode_preset
+        current_perf = 0
+        if isinstance(self.coordinator.data, ControlBoardSettings) or hasattr(
+            self.coordinator.data, "performance_mode_preset"
+        ):
+            raw = self.coordinator.data.performance_mode_preset
+            if isinstance(raw, int):
+                current_perf = raw
+        elif isinstance(self.coordinator.data, dict):
+            raw = (
+                self.coordinator.data.get("performanceModePreset")
+                if self.coordinator.data.get("performanceModePreset") is not None
+                else self.coordinator.data.get("PerformanceModePreset", 0)
+            )
+            if isinstance(raw, int):
+                current_perf = raw
+
+        if (
+            preset not in (0, SilentHoursScheduledPreset.OFF_ALT)
+            and preset <= current_perf
+        ):
+            raise HomeAssistantError(
+                "Night limit preset must be strictly greater than daytime performance preset"
+            )
+
         try:
             token = await self._async_get_token()
             control_board_id = await self._async_get_control_board_id(token)
 
-            # 1. Dispatch setting mutation PATCH
-            request_id = await self._client.async_set_silent_hours_preset(
-                control_board_id=control_board_id,
-                token=token,
-                preset=preset,
+            settings_data = (
+                self.coordinator.data
+                if isinstance(self.coordinator.data, ControlBoardSettings)
+                else ControlBoardSettings()
             )
+            bundled = settings_data.build_bundled_silent_schedule_payload(
+                silent_preset=preset
+            )
+
+            # 1. Dispatch setting mutation PATCH
+            if hasattr(self._client, "async_patch_control_board_settings") and (
+                type(self._client).__name__ == "WeheatClient"
+                or not hasattr(self._client, "async_set_silent_hours_preset")
+            ):
+                request_id = await self._client.async_patch_control_board_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    settings=bundled,
+                )
+            else:
+                request_id = await self._client.async_set_silent_hours_preset(
+                    control_board_id=control_board_id,
+                    token=token,
+                    preset=preset,
+                )
 
             # 2. Await asynchronous polling until status == Succeeded (2)
             await self._client.async_poll_settings_request(

@@ -471,3 +471,13 @@ class WeheatData:
     settings_coordinator: WeheatSettingsUpdateCoordinator | None = None
     client: WeheatClient | None = None
     session: OAuth2Session | WeheatPortalSession | None = None
+
+    @property
+    def control_board_id(self) -> str | None:
+        """Return control board ID from heat pump info."""
+        return self.heat_pump_info.control_board_id
+
+    @property
+    def installation_id(self) -> str | None:
+        """Return installation ID from heat pump info."""
+        return self.heat_pump_info.installation_id

@@ -108,6 +108,7 @@ class WeheatClient:
         self._access_token = access_token
         self._request_timeout = request_timeout
         self._control_board_cache: dict[str, str] = {}
+        self._installation_cache: dict[str, str] = {}
 
     @property
     def base_url(self) -> str:
@@ -296,6 +297,15 @@ class WeheatClient:
                 self._control_board_cache[str(pump.control_board_id)] = str(
                     pump.control_board_id
                 )
+            if pump.installation_id:
+                self._installation_cache[pump.heatpump_id] = str(pump.installation_id)
+                if pump.control_board_id:
+                    self._installation_cache[str(pump.control_board_id)] = str(
+                        pump.installation_id
+                    )
+                self._installation_cache[str(pump.installation_id)] = str(
+                    pump.installation_id
+                )
 
         return result
 
@@ -341,30 +351,47 @@ class WeheatClient:
             items = []
 
         for item in items:
-            hp_nested = item.get("heatPump")
-            hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
-            cb_id = item.get("controlBoardId") or hp_dict.get("controlBoardId")
-            hp_id = item.get("heatPumpId") or hp_dict.get("id") or item.get("id")
-            inst_id = item.get("installationId") or (
-                item.get("id") if hp_dict or item.get("id") != hp_id else None
-            )
-            if cb_id and "controlBoardId" not in item:
-                item["controlBoardId"] = cb_id
-            if hp_id and "heatPumpId" not in item:
-                item["heatPumpId"] = hp_id
-            if inst_id and "installationId" not in item:
-                item["installationId"] = inst_id
+            hps: list[dict[str, Any]] = []
+            if isinstance(item.get("heatPumps"), list):
+                hps = [hp for hp in item["heatPumps"] if isinstance(hp, dict)]
+            elif isinstance(item.get("heatPump"), dict):
+                hps = [item["heatPump"]]
+            else:
+                hps = [{}]
 
-            if not cb_id:
-                continue
+            for hp_dict in hps:
+                cb_id = item.get("controlBoardId") or hp_dict.get("controlBoardId")
+                hp_id = hp_dict.get("id") or item.get("heatPumpId") or item.get("id")
+                inst_id = item.get("installationId") or (
+                    item.get("id") if hp_dict or item.get("id") != hp_id else None
+                )
+                if cb_id and "controlBoardId" not in item:
+                    item["controlBoardId"] = cb_id
+                if hp_id and "heatPumpId" not in item:
+                    item["heatPumpId"] = hp_id
+                if inst_id and "installationId" not in item:
+                    item["installationId"] = inst_id
 
-            if hp_id:
-                self._control_board_cache[str(hp_id)] = str(cb_id)
-            if inst_id:
-                self._control_board_cache[str(inst_id)] = str(cb_id)
-            self._control_board_cache[str(cb_id)] = str(cb_id)
+                if not cb_id:
+                    continue
+
+                if hp_id:
+                    self._control_board_cache[str(hp_id)] = str(cb_id)
+                if inst_id:
+                    self._control_board_cache[str(inst_id)] = str(cb_id)
+                self._control_board_cache[str(cb_id)] = str(cb_id)
+
+                if inst_id:
+                    if hp_id:
+                        self._installation_cache[str(hp_id)] = str(inst_id)
+                    if cb_id:
+                        self._installation_cache[str(cb_id)] = str(inst_id)
+                    self._installation_cache[str(inst_id)] = str(inst_id)
 
         return items
+
+    # Alias for topology discovery
+    async_get_installations_fully_expanded = async_get_installation_topology
 
     async def async_get_control_board_id(
         self,
@@ -490,6 +517,39 @@ class WeheatClient:
             response_data=data,
         )
 
+    async def async_get_control_board_settings(
+        self,
+        target_id: str,
+        token: str | None = None,
+    ) -> ControlBoardSettings:
+        """Retrieve settings for a given target, resolving target_id to installation_id.
+
+        Args:
+            target_id: Heat pump UUID, installation ID, or control board ID.
+            token: Access token for Bearer authorization.
+
+        Returns:
+            ControlBoardSettings dataclass instance.
+        """
+        if not target_id or not target_id.strip():
+            raise ValueError("target_id must not be empty")
+
+        clean_id = target_id.strip()
+        installation_id = self._installation_cache.get(clean_id)
+
+        if not installation_id:
+            try:
+                await self.async_get_installation_topology(token=token)
+                installation_id = self._installation_cache.get(clean_id)
+            except Exception:
+                pass
+
+        effective_id = installation_id or clean_id
+        return await self.async_get_installation_settings(
+            installation_id=effective_id,
+            token=token,
+        )
+
     # -------------------------------------------------------------------------
     # Control Board Settings Mutation Methods
     # -------------------------------------------------------------------------
@@ -521,10 +581,22 @@ class WeheatClient:
         if not settings:
             raise ValueError("settings dictionary must not be empty")
 
-        url = f"{self._portal_base_url}/api/v1/control-boards/{control_board_id.strip()}/settings"
+        target_cb = self._control_board_cache.get(
+            control_board_id.strip(), control_board_id.strip()
+        )
+        url = f"{self._portal_base_url}/api/v1/control-boards/{target_cb}/settings"
+
+        actual_settings = settings
+        actual_update_immediately = update_immediately
+        if isinstance(settings, dict) and "settings" in settings:
+            actual_update_immediately = settings.get(
+                "updateImmediately", update_immediately
+            )
+            actual_settings = settings["settings"]
+
         payload = {
-            "settings": settings,
-            "updateImmediately": update_immediately,
+            "settings": actual_settings,
+            "updateImmediately": actual_update_immediately,
         }
 
         data = await self._request("PATCH", url, token=token, json=payload)
@@ -611,7 +683,8 @@ class WeheatClient:
 
         cleaned_schedule: dict[str, int] = {}
         for key, value in schedule.items():
-            if key not in VALID_SILENT_SCHEDULE_KEYS:
+            norm_key = key[0].upper() + key[1:] if key.startswith("silent") else key
+            if norm_key not in VALID_SILENT_SCHEDULE_KEYS:
                 raise ValueError(
                     f"Unknown schedule key: '{key}'. Must be one of valid SilentHours/SilentMinutes keys."
                 )
@@ -619,15 +692,15 @@ class WeheatClient:
                 raise ValueError(
                     f"Schedule value for '{key}' must be an integer, got {type(value).__name__}."
                 )
-            if "Hours" in key and not (0 <= value <= 23):
+            if "Hours" in norm_key and not (0 <= value <= 23):
                 raise ValueError(
                     f"Invalid hour for '{key}': {value}. Must be between 0 and 23."
                 )
-            if "Minutes" in key and not (0 <= value <= 59):
+            if "Minutes" in norm_key and not (0 <= value <= 59):
                 raise ValueError(
                     f"Invalid minute for '{key}': {value}. Must be between 0 and 59."
                 )
-            cleaned_schedule[key] = value
+            cleaned_schedule[norm_key] = value
 
         return await self.async_patch_control_board_settings(
             control_board_id=control_board_id,
@@ -662,15 +735,16 @@ class WeheatClient:
         settings: dict[str, Any] = {"SilentHoursScheduledPreset": int(preset)}
         if schedule:
             for key, value in schedule.items():
-                if key not in VALID_SILENT_SCHEDULE_KEYS:
+                norm_key = key[0].upper() + key[1:] if key.startswith("silent") else key
+                if norm_key not in VALID_SILENT_SCHEDULE_KEYS:
                     raise ValueError(f"Unknown schedule key: '{key}'")
                 if not isinstance(value, int):
                     raise ValueError(f"Schedule value for '{key}' must be integer")
-                if "Hours" in key and not (0 <= value <= 23):
+                if "Hours" in norm_key and not (0 <= value <= 23):
                     raise ValueError(f"Invalid hour for '{key}': {value}")
-                if "Minutes" in key and not (0 <= value <= 59):
+                if "Minutes" in norm_key and not (0 <= value <= 59):
                     raise ValueError(f"Invalid minute for '{key}': {value}")
-                settings[key] = value
+                settings[norm_key] = value
 
         return await self.async_patch_control_board_settings(
             control_board_id=control_board_id,
@@ -732,9 +806,12 @@ class WeheatClient:
         if not control_board_id or not request_id:
             raise ValueError("control_board_id and request_id must not be empty")
 
+        target_cb = self._control_board_cache.get(
+            control_board_id.strip(), control_board_id.strip()
+        )
         url = (
             f"{self._portal_base_url}/api/v1/control-boards/"
-            f"{control_board_id.strip()}/settings/{request_id.strip()}"
+            f"{target_cb}/settings/{request_id.strip()}"
         )
         return await self._request("GET", url, token=token)
 
@@ -825,10 +902,10 @@ class WeheatClient:
         if not variables:
             raise ValueError("variables dictionary must not be empty")
 
-        url = (
-            f"{self._portal_base_url}/api/v1/control-boards/"
-            f"{control_board_id.strip()}/variables"
+        target_cb = self._control_board_cache.get(
+            control_board_id.strip(), control_board_id.strip()
         )
+        url = f"{self._portal_base_url}/api/v1/control-boards/{target_cb}/variables"
         return await self._request(
             "PATCH", url, token=token, json={"variables": variables}
         )

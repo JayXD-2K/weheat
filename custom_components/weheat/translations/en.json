@@ -41,21 +41,21 @@
   "services": {
     "set_quiet_mode": {
       "name": "Set quiet mode",
-      "description": "Set the performance or quiet mode preset for a Weheat heat pump.",
+      "description": "Set the daytime performance or quiet mode preset for a Weheat heat pump. Presets range from Performance (extra savings / maximum power) to Silent 4 (extra quiet / maximum daytime noise reduction) by capping compressor and fan speeds.",
       "fields": {
         "mode": {
           "name": "Mode",
-          "description": "The quiet mode preset to apply (Performance, Silent 1, Silent 2, Silent 3, Silent 4)."
+          "description": "The quiet mode preset to apply: 'Performance' (0: Extra savings / Maximum power, unrestricted compressor/fan speed), 'Silent 1' (1: Quiet level 1, slight noise reduction), 'Silent 2' (2: Quiet level 2, moderate noise reduction), 'Silent 3' (3: Quiet level 3, high noise reduction), or 'Silent 4' (4: Extra quiet, lowest daytime power limit)."
         }
       }
     },
     "set_silent_schedule": {
       "name": "Set silent schedule",
-      "description": "Configure the silent hours preset, active days of week, and daily start/stop quiet window.",
+      "description": "Configure the silent hours preset, active days of week, and daily start/stop quiet window. Presets cap night power and noise levels.",
       "fields": {
         "preset": {
           "name": "Preset",
-          "description": "Silent hours preset level to activate during the scheduled quiet window."
+          "description": "Silent hours preset level to activate during the scheduled quiet window: 'Off' (0: schedule disabled), 'Silent 1' (1: Level 1 night limit / highest night heating capacity), through 'Silent 2' (2), 'Silent 3' (3), 'Silent 4' (4), 'Silent 6' (6), and 'Silent 7' (7: extra quiet night limit)."
         },
         "days": {
           "name": "Days of the week",
@@ -332,7 +332,9 @@
           "silent_1": "Silent 1",
           "silent_2": "Silent 2",
           "silent_3": "Silent 3",
-          "silent_4": "Silent 4"
+          "silent_4": "Silent 4",
+          "silent_6": "Silent 6",
+          "silent_7": "Silent 7"
         }
       }
     },

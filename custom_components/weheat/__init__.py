@@ -90,6 +90,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
     nr_of_pumps = len(discovered_heat_pumps)
     control_session = WeheatPortalSession(hass, entry, client, session)
 
+    if control_session.has_portal_auth:
+        try:
+            await control_session.async_ensure_token_valid()
+            portal_token = (
+                control_session.token.get(CONF_ACCESS_TOKEN)
+                if isinstance(control_session.token, dict)
+                else None
+            )
+            topology_items = await client.async_get_installation_topology(
+                token=portal_token
+            )
+            for item in topology_items:
+                hp_nested = item.get("heatPump")
+                hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
+                cb_id = item.get("controlBoardId") or hp_dict.get("controlBoardId")
+                hp_id = item.get("heatPumpId") or hp_dict.get("id") or item.get("id")
+                inst_id = item.get("installationId") or (
+                    item.get("id") if hp_dict or item.get("id") != hp_id else None
+                )
+                for pump_info in discovered_heat_pumps:
+                    if str(pump_info.heatpump_id) == str(hp_id) or (
+                        len(discovered_heat_pumps) == 1
+                        and not pump_info.control_board_id
+                    ):
+                        if cb_id and not pump_info.control_board_id:
+                            pump_info.control_board_id = str(cb_id)
+                        if inst_id and not pump_info.installation_id:
+                            pump_info.installation_id = str(inst_id)
+        except Exception as err:
+            _LOGGER.debug("Safe topology discovery skipped during setup: %s", err)
+
     for pump_info in discovered_heat_pumps:
         _LOGGER.debug(
             "Adding Weheat heat pump %s (%s)",

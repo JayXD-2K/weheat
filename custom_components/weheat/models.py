@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum
@@ -94,26 +95,52 @@ class HeatPumpState(IntEnum):
 
 
 class PerformanceModePreset(IntEnum):
-    """Quiet Mode / Performance Mode preset levels (0 to 4)."""
+    """Quiet Mode / Performance Mode daytime preset levels (0 to 4).
 
-    PERFORMANCE = 0
-    SILENT_1 = 1
-    SILENT_2 = 2
-    SILENT_3 = 3
-    SILENT_4 = 4
+    In the Weheat Portal UI, this corresponds to the "Quiet level" daytime slider,
+    ranging from maximum efficiency / maximum heating power ("Extra savings") to
+    maximum noise reduction ("Extra quiet") by progressively capping compressor and fan RPM:
+    - 0 (PERFORMANCE): "Extra savings" / Maximum power. Unrestricted compressor and fan RPM.
+    - 1 (SILENT_1): Quiet level 1. Mild noise reduction, slight compressor/fan speed limit.
+    - 2 (SILENT_2): Quiet level 2. Moderate noise reduction, balanced quietness and capacity.
+    - 3 (SILENT_3): Quiet level 3. High noise reduction, lower compressor/fan speed limit.
+    - 4 (SILENT_4): "Extra quiet" / Quiet level 4. Maximum daytime noise reduction, lowest daytime power limit.
+    """
+
+    PERFORMANCE = 0  # Extra savings / Maximum power (unrestricted)
+    SILENT_1 = 1  # Quiet level 1 (mild noise reduction)
+    SILENT_2 = 2  # Quiet level 2 (moderate noise reduction)
+    SILENT_3 = 3  # Quiet level 3 (high noise reduction)
+    SILENT_4 = 4  # Extra quiet / Quiet level 4 (maximum daytime noise reduction)
 
 
 class SilentHoursScheduledPreset(IntEnum):
-    """Silent Hours schedule preset levels (0 to 7)."""
+    """Silent Hours schedule night limit preset levels (0 to 7).
 
-    OFF = 0
-    SILENT_1 = 1
-    SILENT_2 = 2
-    SILENT_3 = 3
-    SILENT_4 = 4
-    OFF_ALT = 5
-    SILENT_6 = 6
-    SILENT_7 = 7
+    In the Weheat Portal UI, this corresponds to the Night Limit preset applied
+    during scheduled silent hours:
+    - 0 (OFF): Scheduled quiet hours disabled / inactive.
+    - 1 (SILENT_1): Night limit level 1 (mildest night limit / highest night heating capacity).
+    - 2 (SILENT_2): Night limit level 2 (moderate night noise cap).
+    - 3 (SILENT_3): Night limit level 3 (high night noise cap).
+    - 4 (SILENT_4): Night limit level 4 (very quiet night limit).
+    - 5 (OFF_ALT): Alternative off value (equivalent to schedule disabled).
+    - 6 (SILENT_6): Night limit level 6 (ultra quiet night limit).
+    - 7 (SILENT_7): Night limit level 7 (maximum quietness / lowest night power limit).
+
+    Firmware Constraint:
+    When Night Limit is active (preset not in {0, 5}), the control board firmware
+    strictly enforces: SilentHoursScheduledPreset > PerformanceModePreset.
+    """
+
+    OFF = 0  # Schedule disabled
+    SILENT_1 = 1  # Level 1 night limit (highest night power)
+    SILENT_2 = 2  # Level 2 night limit
+    SILENT_3 = 3  # Level 3 night limit
+    SILENT_4 = 4  # Level 4 night limit
+    OFF_ALT = 5  # Alternative disabled code
+    SILENT_6 = 6  # Level 6 night limit (ultra quiet)
+    SILENT_7 = 7  # Level 7 night limit (maximum quietness)
 
 
 class SettingsRequestStatus(IntEnum):
@@ -267,23 +294,69 @@ class HeatPumpInfo:
 
     @classmethod
     def from_api_dict(cls, data: dict[str, Any]) -> HeatPumpInfo:
-        """Instantiate HeatPumpInfo from Weheat API JSON item."""
-        dhw_type = data.get("dhwType")
-        boiler_type = data.get("boilerType")
-        state = data.get("state")
+        """Instantiate HeatPumpInfo from Weheat API JSON item.
+
+        Handles standard heat pump dictionary as well as nested structures returned
+        by /installations/fully-expanded.
+        """
+        hp_nested = data.get("heatPump")
+        hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
+
+        heatpump_id = str(
+            hp_dict.get("id") or data.get("heatPumpId") or data.get("id") or ""
+        )
+        control_board_id = hp_dict.get("controlBoardId") or data.get("controlBoardId")
+        installation_id = data.get("installationId") or (
+            data.get("id") if hp_dict and data.get("id") != heatpump_id else None
+        )
+
+        name = hp_dict.get("name") or data.get("name", "Weheat Heat Pump")
+        model = (
+            hp_dict.get("model")
+            if hp_dict.get("model") is not None
+            else data.get("model", 0)
+        )
+        serial_number = hp_dict.get("serialNumber") or data.get("serialNumber", "")
+
+        dhw_type = (
+            hp_dict.get("dhwType")
+            if hp_dict.get("dhwType") is not None
+            else data.get("dhwType")
+        )
+        boiler_type = (
+            hp_dict.get("boilerType")
+            if hp_dict.get("boilerType") is not None
+            else data.get("boilerType")
+        )
+        state = (
+            hp_dict.get("state")
+            if hp_dict.get("state") is not None
+            else data.get("state")
+        )
+
+        firmware_version = hp_dict.get("firmwareVersion") or data.get("firmwareVersion")
+        part_number = hp_dict.get("partNumber") or data.get("partNumber")
+        commissioned_at = hp_dict.get("commissionedAt") or data.get("commissionedAt")
+
+        has_dhw = (
+            bool(hp_dict.get("hasDhw") or data.get("hasDhw"))
+            if ("hasDhw" in hp_dict or "hasDhw" in data)
+            else (dhw_type == 1 if dhw_type is not None else False)
+        )
+
         return cls(
-            heatpump_id=data["id"],
-            name=data.get("name", "Weheat Heat Pump"),
-            model=data.get("model", 0),
-            serial_number=data.get("serialNumber", ""),
-            has_dhw=dhw_type == 1 if dhw_type is not None else False,
+            heatpump_id=heatpump_id,
+            name=name,
+            model=model,
+            serial_number=serial_number,
+            has_dhw=has_dhw,
             has_ch_boiler=boiler_type is not None and boiler_type > 0,
             is_online=state != 1 if state is not None else True,
-            control_board_id=data.get("controlBoardId"),
-            firmware_version=data.get("firmwareVersion"),
-            part_number=data.get("partNumber"),
-            installation_id=data.get("installationId"),
-            commissioned_at=data.get("commissionedAt"),
+            control_board_id=str(control_board_id) if control_board_id else None,
+            firmware_version=firmware_version,
+            part_number=part_number,
+            installation_id=str(installation_id) if installation_id else None,
+            commissioned_at=commissioned_at,
         )
 
 
@@ -826,29 +899,134 @@ class ControlBoardSettings:
     raw_settings: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_api_dict(cls, data: dict[str, Any]) -> ControlBoardSettings:
-        """Parse settings from /api/v1/installations/{id}/settings JSON dict."""
-        settings_dict = data.get("settings", data)
-        schedules: dict[str, DailySilentSchedule] = {}
+    def from_api_dict(cls, data: dict[str, Any] | None) -> ControlBoardSettings:
+        """Parse settings from /api/v1/installations/{id}/settings JSON dict.
 
+        Checks camelCase keys first (live portal API format), then falls back
+        to PascalCase keys (fixtures / legacy format). Handles nested 'settings'
+        sub-dictionaries as well as flat payloads. Safely handles None data.
+        """
+        if not isinstance(data, dict):
+            return cls()
+
+        nested_settings = data.get("settings")
+        if not isinstance(nested_settings, dict):
+            nested_settings = data.get("Settings")
+        settings_dict: dict[str, Any] = (
+            nested_settings if isinstance(nested_settings, dict) else data
+        )
+
+        def _get_val(
+            camel_key: str, pascal_key: str, default: Any, val_type: type = int
+        ) -> Any:
+            val = None
+            if isinstance(settings_dict, dict):
+                val = settings_dict.get(camel_key)
+                if val is None:
+                    val = settings_dict.get(pascal_key)
+            if val is None and isinstance(data, dict):
+                val = data.get(camel_key)
+                if val is None:
+                    val = data.get(pascal_key)
+            if val is None:
+                return default
+            try:
+                return val_type(val)
+            except (ValueError, TypeError):
+                return default
+
+        schedules: dict[str, DailySilentSchedule] = {}
         for day in DAYS_OF_WEEK:
             schedules[day] = DailySilentSchedule(
                 day=day,
-                start_hour=int(settings_dict.get(f"SilentHours{day}Start", 19)),
-                start_minute=int(settings_dict.get(f"SilentMinutes{day}Start", 0)),
-                stop_hour=int(settings_dict.get(f"SilentHours{day}Stop", 7)),
-                stop_minute=int(settings_dict.get(f"SilentMinutes{day}Stop", 0)),
+                start_hour=_get_val(
+                    f"silentHours{day}Start", f"SilentHours{day}Start", 19, int
+                ),
+                start_minute=_get_val(
+                    f"silentMinutes{day}Start", f"SilentMinutes{day}Start", 0, int
+                ),
+                stop_hour=_get_val(
+                    f"silentHours{day}Stop", f"SilentHours{day}Stop", 7, int
+                ),
+                stop_minute=_get_val(
+                    f"silentMinutes{day}Stop", f"SilentMinutes{day}Stop", 0, int
+                ),
             )
 
+        dhw_default = 50.0
+        if isinstance(data.get("dhw"), dict) and "targetTemperature" in data["dhw"]:
+            with contextlib.suppress(ValueError, TypeError):
+                dhw_default = float(data["dhw"]["targetTemperature"])
+
         return cls(
-            performance_mode_preset=int(settings_dict.get("PerformanceModePreset", 0)),
-            silent_hours_preset=int(settings_dict.get("SilentHoursScheduledPreset", 0)),
-            dhw_target_temperature=float(
-                settings_dict.get("DhwTargetTemperature", 50.0)
+            performance_mode_preset=_get_val(
+                "performanceModePreset", "PerformanceModePreset", 0, int
+            ),
+            silent_hours_preset=_get_val(
+                "silentHoursScheduledPreset", "SilentHoursScheduledPreset", 0, int
+            ),
+            dhw_target_temperature=_get_val(
+                "dhwTargetTemperature", "DhwTargetTemperature", dhw_default, float
             ),
             schedules=schedules,
             raw_settings=settings_dict,
         )
+
+    def build_bundled_silent_schedule_payload(
+        self,
+        performance_preset: int | None = None,
+        performance_mode_preset: int | None = None,
+        silent_preset: int | None = None,
+        silent_hours_preset: int | None = None,
+        day_updates: dict[str, int] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Build the complete 30-key quiet mode and silent schedule payload.
+
+        Generates the complete 30-key PascalCase dictionary wrapped in
+        {"settings": {...}, "updateImmediately": False} so partial updates
+        never corrupt schedule state.
+        """
+        perf_val = (
+            performance_preset
+            if performance_preset is not None
+            else performance_mode_preset
+        )
+        silent_val = silent_preset if silent_preset is not None else silent_hours_preset
+
+        perf = self.performance_mode_preset if perf_val is None else int(perf_val)
+        silent = self.silent_hours_preset if silent_val is None else int(silent_val)
+
+        payload_settings: dict[str, int] = {
+            "PerformanceModePreset": perf,
+            "SilentHoursScheduledPreset": silent,
+        }
+
+        for day in DAYS_OF_WEEK:
+            sched = self.schedules.get(day)
+            payload_settings[f"SilentHours{day}Start"] = (
+                sched.start_hour if sched else 19
+            )
+            payload_settings[f"SilentMinutes{day}Start"] = (
+                sched.start_minute if sched else 0
+            )
+            payload_settings[f"SilentHours{day}Stop"] = sched.stop_hour if sched else 7
+            payload_settings[f"SilentMinutes{day}Stop"] = (
+                sched.stop_minute if sched else 0
+            )
+
+        if day_updates:
+            for k, v in day_updates.items():
+                norm_k = k[0].upper() + k[1:] if k.startswith("silent") else k
+                if norm_k in payload_settings:
+                    payload_settings[norm_k] = int(v)
+
+        return {
+            "settings": payload_settings,
+            "updateImmediately": False,
+        }
+
+    build_quiet_payload = build_bundled_silent_schedule_payload
 
     def to_patch_payload(self) -> dict[str, Any]:
         """Convert settings dataclass to PATCH /control-boards/{id}/settings payload."""

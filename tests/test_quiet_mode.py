@@ -88,6 +88,8 @@ def test_select_catalog_and_options() -> None:
         "Silent 2",
         "Silent 3",
         "Silent 4",
+        "Silent 6",
+        "Silent 7",
     ]
 
 

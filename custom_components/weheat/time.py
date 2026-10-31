@@ -28,7 +28,7 @@ from .client import (
 from .const import DAYS_OF_WEEK
 from .coordinator import WeheatConfigEntry
 from .entity import WeheatEntity
-from .models import DailySilentSchedule, HeatPumpInfo
+from .models import ControlBoardSettings, DailySilentSchedule, HeatPumpInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ async def async_setup_entry(
                     coordinator=coordinator,
                     entity_description=description,
                     client=data.client,
+                    session=data.session,
                 )
             )
 
@@ -104,6 +105,7 @@ class WeheatTimeEntity(WeheatEntity[DataUpdateCoordinator[Any]], TimeEntity):
         coordinator: DataUpdateCoordinator[Any],
         entity_description: WeheatTimeEntityDescription,
         client: WeheatClient | None = None,
+        session: Any | None = None,
     ) -> None:
         """Initialize the Weheat time entity.
 
@@ -112,10 +114,12 @@ class WeheatTimeEntity(WeheatEntity[DataUpdateCoordinator[Any]], TimeEntity):
             coordinator: Update coordinator providing settings data.
             entity_description: Description of the specific day/action time entity.
             client: Optional WeheatClient instance (defaults to coordinator's client).
+            session: Optional session providing portal auth and token refresh.
         """
         super().__init__(heat_pump_info, coordinator, entity_description)
         self.entity_description = entity_description
         self._client = client or getattr(coordinator, "client", None)
+        self._session = session or getattr(coordinator, "session", None)
 
     @property
     def icon(self) -> str | None:
@@ -187,8 +191,10 @@ class WeheatTimeEntity(WeheatEntity[DataUpdateCoordinator[Any]], TimeEntity):
 
         # Refresh OAuth token if an active session is associated with coordinator
         token: str | None = None
-        session = getattr(self.coordinator, "session", None)
+        session = self._session or getattr(self.coordinator, "session", None)
         if session is not None:
+            if hasattr(session, "check_portal_auth"):
+                session.check_portal_auth()
             try:
                 await session.async_ensure_token_valid()
                 token = session.token.get(CONF_ACCESS_TOKEN)
@@ -235,8 +241,28 @@ class WeheatTimeEntity(WeheatEntity[DataUpdateCoordinator[Any]], TimeEntity):
                 schedule_payload,
             )
 
-            # Use async_set_silent_schedule if available, or async_set_silent_hours_schedule
-            if hasattr(client, "async_set_silent_schedule"):
+            settings_data = (
+                self.coordinator.data
+                if isinstance(self.coordinator.data, ControlBoardSettings)
+                else ControlBoardSettings()
+            )
+            bundled = settings_data.build_bundled_silent_schedule_payload(
+                day_updates=schedule_payload
+            )
+
+            if hasattr(client, "async_patch_control_board_settings") and (
+                type(client).__name__ == "WeheatClient"
+                or (
+                    not hasattr(client, "async_set_silent_schedule")
+                    and not hasattr(client, "async_set_silent_hours_schedule")
+                )
+            ):
+                request_id = await client.async_patch_control_board_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    settings=bundled,
+                )
+            elif hasattr(client, "async_set_silent_schedule"):
                 request_id = await client.async_set_silent_schedule(
                     control_board_id=control_board_id,
                     token=token,

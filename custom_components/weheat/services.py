@@ -248,6 +248,8 @@ def _resolve_target_data(hass: HomeAssistant, call: ServiceCall) -> list[WeheatD
 async def _async_get_token(data: WeheatData) -> str:
     """Ensure OAuth token is valid and return access token string."""
     if data.session is not None:
+        if hasattr(data.session, "check_portal_auth"):
+            data.session.check_portal_auth()
         try:
             await data.session.async_ensure_token_valid()
         except ClientResponseError as err:
@@ -403,19 +405,60 @@ async def async_handle_set_quiet_mode(hass: HomeAssistant, call: ServiceCall) ->
     targets = _resolve_target_data(hass, call)
 
     for data in targets:
+        if data.session is not None and hasattr(data.session, "check_portal_auth"):
+            data.session.check_portal_auth()
+
         client = data.client
         if client is None:
             raise HomeAssistantError("Weheat API client is unavailable")
+
+        # Cleanly adjust night limit if daytime preset meets or exceeds it
+        current_silent = 0
+        settings = getattr(data, "settings_coordinator", None) and getattr(
+            data.settings_coordinator, "data", None
+        )
+        if settings is not None:
+            raw_silent = getattr(settings, "silent_hours_scheduled_preset", 0)
+            if isinstance(raw_silent, int):
+                current_silent = raw_silent
+
+        target_silent = current_silent
+        if current_silent not in (0, 5) and preset >= current_silent:
+            target_silent = preset + 1 if preset < 4 else 6
+            _LOGGER.info(
+                "Adjusting silent hours scheduled preset to %s for pump %s to satisfy firmware constraint over daytime preset %s",
+                target_silent,
+                data.heat_pump_info.heatpump_id,
+                preset,
+            )
 
         try:
             token = await _async_get_token(data)
             cb_id = await _async_get_control_board_id(data, token)
 
-            req_id = await client.async_set_performance_mode(
-                control_board_id=cb_id,
-                token=token,
-                preset=preset,
-            )
+            if (
+                settings is not None
+                and hasattr(settings, "build_bundled_silent_schedule_payload")
+                and (
+                    type(client).__name__ == "WeheatClient"
+                    or not hasattr(client, "async_set_performance_mode")
+                )
+            ):
+                payload = settings.build_bundled_silent_schedule_payload(
+                    performance_mode_preset=preset,
+                    silent_hours_preset=target_silent,
+                )
+                req_id = await client.async_patch_control_board_settings(
+                    control_board_id=cb_id,
+                    token=token,
+                    settings=payload,
+                )
+            else:
+                req_id = await client.async_set_performance_mode(
+                    control_board_id=cb_id,
+                    token=token,
+                    preset=preset,
+                )
             # Await asynchronous completion
             await client.async_poll_settings_request(
                 control_board_id=cb_id,
@@ -493,20 +536,81 @@ async def async_handle_set_silent_schedule(
     targets = _resolve_target_data(hass, call)
 
     for data in targets:
+        if data.session is not None and hasattr(data.session, "check_portal_auth"):
+            data.session.check_portal_auth()
+
         client = data.client
         if client is None:
             raise HomeAssistantError("Weheat API client is unavailable")
+
+        # Live constraint: night limit preset must be strictly greater than daytime performance preset
+        current_perf = 0
+        settings = getattr(data, "settings_coordinator", None) and getattr(
+            data.settings_coordinator, "data", None
+        )
+        if settings is not None:
+            raw_perf = getattr(settings, "performance_mode_preset", 0)
+            if isinstance(raw_perf, int):
+                current_perf = raw_perf
+        if preset not in (0, 5) and preset <= current_perf:
+            raise HomeAssistantError(
+                "Night limit preset must be strictly greater than daytime performance preset"
+            )
 
         try:
             token = await _async_get_token(data)
             cb_id = await _async_get_control_board_id(data, token)
 
-            req_id = await client.async_set_silent_hours_schedule(
-                control_board_id=cb_id,
-                token=token,
-                preset=preset,
-                schedule=schedule_dict,
-            )
+            if (
+                settings is not None
+                and hasattr(settings, "build_bundled_silent_schedule_payload")
+                and (
+                    type(client).__name__ == "WeheatClient"
+                    or not hasattr(client, "async_set_silent_hours_schedule")
+                )
+            ):
+                sched_fields = {}
+                for day in DAYS_OF_WEEK:
+                    sched_fields[f"silent_hours_{day.lower()}_start"] = (
+                        schedule_dict.get(
+                            f"SilentHours{day}Start",
+                            getattr(settings, f"silent_hours_{day.lower()}_start", 22),
+                        )
+                    )
+                    sched_fields[f"silent_minutes_{day.lower()}_start"] = (
+                        schedule_dict.get(
+                            f"SilentMinutes{day}Start",
+                            getattr(settings, f"silent_minutes_{day.lower()}_start", 0),
+                        )
+                    )
+                    sched_fields[f"silent_hours_{day.lower()}_stop"] = (
+                        schedule_dict.get(
+                            f"SilentHours{day}Stop",
+                            getattr(settings, f"silent_hours_{day.lower()}_stop", 7),
+                        )
+                    )
+                    sched_fields[f"silent_minutes_{day.lower()}_stop"] = (
+                        schedule_dict.get(
+                            f"SilentMinutes{day}Stop",
+                            getattr(settings, f"silent_minutes_{day.lower()}_stop", 0),
+                        )
+                    )
+                payload = settings.build_bundled_silent_schedule_payload(
+                    silent_hours_preset=preset,
+                    **sched_fields,
+                )
+                req_id = await client.async_patch_control_board_settings(
+                    control_board_id=cb_id,
+                    token=token,
+                    settings=payload,
+                )
+            else:
+                req_id = await client.async_set_silent_hours_schedule(
+                    control_board_id=cb_id,
+                    token=token,
+                    preset=preset,
+                    schedule=schedule_dict,
+                )
             await client.async_poll_settings_request(
                 control_board_id=cb_id,
                 request_id=req_id,
@@ -543,6 +647,9 @@ async def async_handle_trigger_legionella(
     targets = _resolve_target_data(hass, call)
 
     for data in targets:
+        if data.session is not None and hasattr(data.session, "check_portal_auth"):
+            data.session.check_portal_auth()
+
         client = data.client
         if client is None:
             raise HomeAssistantError("Weheat API client is unavailable")
