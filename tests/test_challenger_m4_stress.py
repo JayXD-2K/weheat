@@ -54,8 +54,8 @@ class TestSemVerRobustnessAndSynchronization:
         assert isinstance(version, str), (
             f"Version must be string, got {type(version).__name__}"
         )
-        assert version == "1.1.0", (
-            f"Expected bumped Milestone 4 version 1.1.0, got {version}"
+        assert version == "0.1.0", (
+            f"Expected initial pre-release version 0.1.0, got {version}"
         )
 
         # SemVer 2.0.0 strict format check
@@ -95,7 +95,7 @@ class TestSemVerRobustnessAndSynchronization:
         uv_lock_version = weheat_package.get("version")
 
         # Invariant: All three must match exactly
-        assert manifest_version == pyproject_version == uv_lock_version == "1.1.0", (
+        assert manifest_version == pyproject_version == uv_lock_version == "0.1.0", (
             f"Version synchronization failure: manifest={manifest_version}, "
             f"pyproject={pyproject_version}, uv.lock={uv_lock_version}"
         )
