@@ -1,5 +1,7 @@
 # Weheat Custom Home Assistant Integration
 
+> **⚠️ Disclaimer:** This is a personal project and is very much untested at the moment. Use at your own risk.
+
 Custom Home Assistant integration for Weheat heat pumps (Blackbird, Sparrow, Flint), extending the core integration with full control capabilities including Quiet Level, Silent Hours / Night Limit scheduling, Legionella prevention, and domestic hot water (DHW) controls.
 
 ## Features
