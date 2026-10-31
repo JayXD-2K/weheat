@@ -26,6 +26,7 @@ jobs:
             VERSION=$(jq -r '.version' custom_components/weheat/manifest.json)
             TAG_NAME="v${VERSION}"
           fi
+          gh release delete v1.1.0 --yes >/dev/null 2>&1 || true
           gh release view "$TAG_NAME" >/dev/null 2>&1 || \
             gh release create "$TAG_NAME" \
               --title "$TAG_NAME" \
