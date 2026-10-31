@@ -17,7 +17,7 @@ from homeassistant.components.number import (
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.const import CONF_ACCESS_TOKEN, UnitOfTemperature
+from homeassistant.const import CONF_ACCESS_TOKEN, EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -50,6 +50,7 @@ COOLING_NUMBER_DESCRIPTIONS: tuple[WeheatCoolingCurveNumberDescription, ...] = (
     WeheatCoolingCurveNumberDescription(
         key="cooling_curve_mild_temperature",
         translation_key="cooling_curve_mild_temperature",
+        entity_category=EntityCategory.CONFIG,
         device_class=NumberDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         native_min_value=float(COOLING_CURVE_MIN_TEMP_DEFAULT),
@@ -63,6 +64,7 @@ COOLING_NUMBER_DESCRIPTIONS: tuple[WeheatCoolingCurveNumberDescription, ...] = (
     WeheatCoolingCurveNumberDescription(
         key="cooling_curve_peak_temperature",
         translation_key="cooling_curve_peak_temperature",
+        entity_category=EntityCategory.CONFIG,
         device_class=NumberDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         native_min_value=float(COOLING_CURVE_MIN_TEMP_DEFAULT),

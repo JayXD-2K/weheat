@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_ACCESS_TOKEN, CONF_TOKEN, UnitOfTemperature
+from homeassistant.const import (
+    CONF_ACCESS_TOKEN,
+    CONF_TOKEN,
+    EntityCategory,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
@@ -284,8 +289,8 @@ async def test_cooling_curve_number_entities(
     mild_num, peak_num = added_numbers[0], added_numbers[1]
     assert mild_num.unique_id == f"{TEST_HP_UUID}_cooling_curve_mild_temperature"
     assert peak_num.unique_id == f"{TEST_HP_UUID}_cooling_curve_peak_temperature"
-    assert mild_num.entity_description.entity_category is None
-    assert peak_num.entity_description.entity_category is None
+    assert mild_num.entity_description.entity_category == EntityCategory.CONFIG
+    assert peak_num.entity_description.entity_category == EntityCategory.CONFIG
     assert (
         mild_num.entity_description.native_unit_of_measurement
         == UnitOfTemperature.CELSIUS
