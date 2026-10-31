@@ -23,8 +23,8 @@ from aiohttp import ClientError, ClientResponseError, ClientSession, ClientTimeo
 from .const import (
     DEFAULT_API_BASE_URL,
     DEFAULT_TIMEOUT_SECONDS,
-    OAUTH2_CLIENT_ID,
     PORTAL_AUTH_URL,
+    PORTAL_CLIENT_ID,
     PORTAL_REDIRECT_URI,
     PORTAL_SCOPES,
     PORTAL_TOKEN_URL,
@@ -1081,7 +1081,7 @@ class WeheatClient:
         auth_url: str = PORTAL_AUTH_URL,
         token_url: str = PORTAL_TOKEN_URL,
         redirect_uri: str = PORTAL_REDIRECT_URI,
-        client_id: str = OAUTH2_CLIENT_ID,
+        client_id: str = PORTAL_CLIENT_ID,
     ) -> dict[str, Any]:
         """Authenticate directly as weheat-portal via Keycloak OAuth2 PKCE (S256).
 
@@ -1240,7 +1240,7 @@ class WeheatClient:
         self,
         refresh_token: str,
         token_url: str = PORTAL_TOKEN_URL,
-        client_id: str = OAUTH2_CLIENT_ID,
+        client_id: str = PORTAL_CLIENT_ID,
     ) -> dict[str, Any]:
         """Refresh a weheat-portal token using its OAuth2 refresh_token."""
         if not refresh_token or not refresh_token.strip():
