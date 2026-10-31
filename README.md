@@ -74,3 +74,9 @@ uv run ruff format .
 ## Privacy & Security
 
 All mock fixtures and tests use anonymized UUIDs and mock identifiers. Real credentials, device serial numbers, and access tokens are strictly prohibited in git commits.
+
+## License & Attribution
+
+Licensed under the [Apache License 2.0](LICENSE).
+
+Portions of this integration (such as sensor/binary sensor entity definitions, `icons.json`, and translation strings) are based on the upstream [Home Assistant Core `weheat` integration](https://github.com/home-assistant/core/tree/dev/homeassistant/components/weheat) (Apache-2.0). This project is an independent, unofficial modification and is not affiliated with or endorsed by Weheat B.V. or Home Assistant.
