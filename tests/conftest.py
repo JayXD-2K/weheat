@@ -115,6 +115,12 @@ def installation_settings_fixture() -> dict[str, Any]:
 
 
 @pytest.fixture
+def installation_settings_pascal_fixture() -> dict[str, Any]:
+    """Provide the parsed installation_settings_pascal_get.json fixture."""
+    return load_fixture("installation_settings_pascal_get.json")
+
+
+@pytest.fixture
 def settings_update_fixture() -> dict[str, Any]:
     """Provide the parsed settings_update_success.json fixture."""
     return load_fixture("settings_update_success.json")

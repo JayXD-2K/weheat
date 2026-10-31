@@ -1,0 +1,76 @@
+{
+  "installationId": "00000000-0000-0000-0000-000000000101",
+  "controlBoardId": "cb-00000000-0000-0000-0000-000000000001",
+  "silentHours": {
+    "quietLevel": 2,
+    "nightLimitEnabled": true,
+    "nightLimitStartTime": "22:00",
+    "nightLimitEndTime": "07:00",
+    "nightLimitPowerPercentage": 50,
+    "pumpFlow": {
+      "daySpeed": 80,
+      "nightSpeed": 50,
+      "chSpeed": 60,
+      "dhwSpeed": 80
+    }
+  },
+  "settings": {
+    "PerformanceModePreset": 0,
+    "SilentHoursScheduledPreset": 2,
+    "SilentHoursMondayStart": 19,
+    "SilentMinutesMondayStart": 0,
+    "SilentHoursMondayStop": 7,
+    "SilentMinutesMondayStop": 0,
+    "SilentHoursTuesdayStart": 19,
+    "SilentMinutesTuesdayStart": 0,
+    "SilentHoursTuesdayStop": 7,
+    "SilentMinutesTuesdayStop": 0,
+    "SilentHoursWednesdayStart": 19,
+    "SilentMinutesWednesdayStart": 0,
+    "SilentHoursWednesdayStop": 7,
+    "SilentMinutesWednesdayStop": 0,
+    "SilentHoursThursdayStart": 19,
+    "SilentMinutesThursdayStart": 0,
+    "SilentHoursThursdayStop": 7,
+    "SilentMinutesThursdayStop": 0,
+    "SilentHoursFridayStart": 19,
+    "SilentMinutesFridayStart": 0,
+    "SilentHoursFridayStop": 7,
+    "SilentMinutesFridayStop": 0,
+    "SilentHoursSaturdayStart": 19,
+    "SilentMinutesSaturdayStart": 0,
+    "SilentHoursSaturdayStop": 7,
+    "SilentMinutesSaturdayStop": 0,
+    "SilentHoursSundayStart": 19,
+    "SilentMinutesSundayStart": 0,
+    "SilentHoursSundayStop": 7,
+    "SilentMinutesSundayStop": 0,
+    "DhwTargetTemperature": 50
+  },
+  "controlMethod": 1,
+  "waterHouseInTemperatureMax": 65.0,
+  "coolingEnabled": false,
+  "coolingCurve": {
+    "mildTemperature": 18.0,
+    "peakTemperature": 16.0
+  },
+  "dhw": {
+    "controlMethod": 2,
+    "targetTemperature": 55.0,
+    "standbyTemperature": 45.0,
+    "boostActive": false,
+    "manualSchedule": [
+      {
+        "day": 1,
+        "startTime": "13:00",
+        "endTime": "16:00",
+        "targetTemperature": 55.0
+      }
+    ],
+    "legionellaSchedule": {
+      "enabled": true,
+      "dayOfWeek": 7,
+      "hour": 3
+    }
+  }
+}

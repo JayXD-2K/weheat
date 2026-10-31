@@ -36,6 +36,7 @@ COMPONENT_DIR = Path("custom_components/weheat")
 ICONS_PATH = COMPONENT_DIR / "icons.json"
 STRINGS_PATH = COMPONENT_DIR / "strings.json"
 EN_TRANSLATION_PATH = COMPONENT_DIR / "translations" / "en.json"
+SERVICES_PATH = COMPONENT_DIR / "services.yaml"
 
 MDI_REGEX = re.compile(r"^mdi:[a-z0-9-]+$")
 
@@ -414,3 +415,73 @@ def test_cop_unrounded_float_precision() -> None:
     assert result == pytest.approx(unrounded_cop, rel=1e-9)
     # Ensure it was NOT prematurely rounded to 2 decimals (4.2)
     assert result != 4.2
+
+
+# ---------------------------------------------------------------------------
+# 6. Quiet Mode & Night Limit Expanded Explanations in Metadata
+# ---------------------------------------------------------------------------
+
+
+def test_quiet_mode_and_night_limit_expanded_explanations() -> None:
+    """Verify strings.json, en.json, and services.yaml contain expanded explanations for presets.
+
+    Asserts that:
+    - Daytime presets explain 0 (Extra savings / Performance / Maximum power) to 4 (Extra quiet / Silent 4).
+    - Night limits explain 0 (Off) through 1..7 (Silent 1..Silent 7 night limits).
+    - All three metadata files (strings.json, translations/en.json, services.yaml) provide clear documentation.
+    """
+    assert SERVICES_PATH.is_file(), f"Missing {SERVICES_PATH}"
+    services_text = SERVICES_PATH.read_text(encoding="utf-8")
+
+    # 1. Check services.yaml contains daytime preset explanations (0..4) and night limits (0, 1..7)
+    assert "Performance (0: Extra savings / Maximum power)" in services_text
+    assert "Silent 1 (1: Quiet level 1 - Mild noise reduction)" in services_text
+    assert "Silent 2 (2: Quiet level 2 - Moderate noise reduction)" in services_text
+    assert "Silent 3 (3: Quiet level 3 - High noise reduction)" in services_text
+    assert (
+        "Silent 4 (4: Extra quiet - Maximum daytime noise reduction)" in services_text
+    )
+
+    assert "Off (0: Disable scheduled quiet hours)" in services_text
+    assert "Silent 1 (1: Level 1 night limit - Highest night power)" in services_text
+    assert (
+        "Silent 2 (2: Level 2 night limit - Moderate night noise cap)" in services_text
+    )
+    assert "Silent 3 (3: Level 3 night limit - High night noise cap)" in services_text
+    assert "Silent 4 (4: Level 4 night limit - Very quiet night limit)" in services_text
+    assert (
+        "Silent 6 (6: Level 6 night limit - Ultra quiet night limit)" in services_text
+    )
+    assert "Silent 7 (7: Level 7 night limit - Maximum quietness)" in services_text
+
+    # 2. Check strings.json and translations/en.json
+    for path in (STRINGS_PATH, EN_TRANSLATION_PATH):
+        with path.open(encoding="utf-8") as f:
+            data = json.load(f)
+
+        services_dict = data.get("services", {})
+        assert "set_quiet_mode" in services_dict
+        mode_field = services_dict["set_quiet_mode"]["fields"]["mode"]
+        mode_desc = mode_field["description"]
+
+        # Check daytime explanations (0 = Extra savings, 1..3, 4 = Extra quiet)
+        assert "Extra savings" in mode_desc
+        assert "Maximum power" in mode_desc
+        assert "unrestricted compressor/fan speed" in mode_desc
+        assert "Silent 1" in mode_desc and "slight noise reduction" in mode_desc
+        assert "Silent 2" in mode_desc and "moderate noise reduction" in mode_desc
+        assert "Silent 3" in mode_desc and "high noise reduction" in mode_desc
+        assert "Silent 4" in mode_desc and "Extra quiet" in mode_desc
+
+        assert "set_silent_schedule" in services_dict
+        preset_field = services_dict["set_silent_schedule"]["fields"]["preset"]
+        preset_desc = preset_field["description"]
+
+        # Check night limit explanations (0 = Off, 1..7)
+        assert "Off" in preset_desc and "0: schedule disabled" in preset_desc
+        assert "Silent 1" in preset_desc and "1: Level 1 night limit" in preset_desc
+        assert "Silent 2" in preset_desc
+        assert "Silent 3" in preset_desc
+        assert "Silent 4" in preset_desc
+        assert "Silent 6" in preset_desc
+        assert "Silent 7" in preset_desc and "7: extra quiet night limit" in preset_desc

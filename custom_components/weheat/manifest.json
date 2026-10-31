@@ -1,7 +1,7 @@
 {
   "domain": "weheat",
   "name": "Weheat",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "categories": ["climate.heat_pumps_air_conditioning"],
   "codeowners": ["@barryvdh", "@JayXD-2K"],
   "config_flow": true,

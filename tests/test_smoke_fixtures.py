@@ -7,6 +7,8 @@ from typing import Any
 import aiohttp
 import pytest
 
+from custom_components.weheat.const import DAYS_OF_WEEK
+from custom_components.weheat.models import ControlBoardSettings
 from tests.conftest import (
     API_BASE_URL,
     PORTAL_BASE_URL,
@@ -26,6 +28,7 @@ FIXTURE_NAMES = [
     "latest_logs.json",
     "energy_total.json",
     "installation_settings_get.json",
+    "installation_settings_pascal_get.json",
     "settings_update_success.json",
     "boost_trigger_success.json",
 ]
@@ -123,7 +126,7 @@ def test_energy_total_metrics(energy_total_fixture: dict[str, Any]) -> None:
 def test_installation_settings_content(
     installation_settings_fixture: dict[str, Any],
 ) -> None:
-    """Verify installation_settings_get.json contains both quiet schedule and portal keys."""
+    """Verify installation_settings_get.json contains both quiet schedule and live camelCase portal keys."""
     # Silent hours high-level structure
     assert "silentHours" in installation_settings_fixture
     silent = installation_settings_fixture["silentHours"]
@@ -133,19 +136,62 @@ def test_installation_settings_content(
     assert silent["nightLimitEndTime"] == "07:00"
     assert silent["nightLimitPowerPercentage"] == 50
 
-    # Live portal settings dictionary
+    # Live portal settings dictionary (authentic camelCase)
     assert "settings" in installation_settings_fixture
     portal_settings = installation_settings_fixture["settings"]
+    assert portal_settings["performanceModePreset"] == 0
+    assert portal_settings["silentHoursScheduledPreset"] == 2
+    assert portal_settings["silentHoursMondayStart"] == 19
+    assert portal_settings["silentMinutesMondayStart"] == 0
+    assert portal_settings["silentHoursMondayStop"] == 7
+    assert portal_settings["silentMinutesMondayStop"] == 0
+    assert portal_settings["dhwTargetTemperature"] == 50
+
+    # DHW settings
+    assert "dhw" in installation_settings_fixture
+    assert installation_settings_fixture["dhw"]["targetTemperature"] == 55.0
+
+
+def test_installation_settings_pascal_content(
+    installation_settings_pascal_fixture: dict[str, Any],
+) -> None:
+    """Verify installation_settings_pascal_get.json contains legacy PascalCase portal keys."""
+    # Silent hours high-level structure
+    assert "silentHours" in installation_settings_pascal_fixture
+    silent = installation_settings_pascal_fixture["silentHours"]
+    assert silent["quietLevel"] == 2
+    assert silent["nightLimitEnabled"] is True
+
+    # Legacy PascalCase settings dictionary
+    assert "settings" in installation_settings_pascal_fixture
+    portal_settings = installation_settings_pascal_fixture["settings"]
     assert portal_settings["PerformanceModePreset"] == 0
     assert portal_settings["SilentHoursScheduledPreset"] == 2
     assert portal_settings["SilentHoursMondayStart"] == 19
     assert portal_settings["SilentMinutesMondayStart"] == 0
     assert portal_settings["SilentHoursMondayStop"] == 7
     assert portal_settings["SilentMinutesMondayStop"] == 0
+    assert portal_settings["DhwTargetTemperature"] == 50
 
     # DHW settings
-    assert "dhw" in installation_settings_fixture
-    assert installation_settings_fixture["dhw"]["targetTemperature"] == 55.0
+    assert "dhw" in installation_settings_pascal_fixture
+    assert installation_settings_pascal_fixture["dhw"]["targetTemperature"] == 55.0
+
+
+def test_dual_casing_parity(
+    installation_settings_fixture: dict[str, Any],
+    installation_settings_pascal_fixture: dict[str, Any],
+) -> None:
+    """Verify ControlBoardSettings.from_api_dict parses both camelCase and PascalCase fixtures identically."""
+    s_camel = ControlBoardSettings.from_api_dict(installation_settings_fixture)
+    s_pascal = ControlBoardSettings.from_api_dict(installation_settings_pascal_fixture)
+
+    assert s_camel.performance_mode_preset == s_pascal.performance_mode_preset
+    assert s_camel.silent_hours_preset == s_pascal.silent_hours_preset
+    assert s_camel.dhw_target_temperature == s_pascal.dhw_target_temperature
+    assert s_camel.schedules == s_pascal.schedules
+    for day in DAYS_OF_WEEK:
+        assert s_camel.schedules[day] == s_pascal.schedules[day]
 
 
 def test_settings_update_content(settings_update_fixture: dict[str, Any]) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -18,7 +19,10 @@ def test_manifest_requirements() -> None:
 
     assert manifest["domain"] == "weheat"
     assert manifest["name"] == "Weheat"
-    assert manifest["version"] == "1.0.0"
+    assert manifest["version"] == "1.1.0"
+    assert re.match(r"^\d+\.\d+\.\d+$", manifest["version"]), (
+        f"Version {manifest['version']} must follow Semantic Versioning (X.Y.Z)"
+    )
     assert manifest["requirements"] == [], (
         "Strictly zero unvetted external dependencies permitted!"
     )
@@ -27,3 +31,5 @@ def test_manifest_requirements() -> None:
     assert manifest["iot_class"] == "cloud_polling"
     assert manifest["integration_type"] == "hub"
     assert "climate.heat_pumps_air_conditioning" in manifest["categories"]
+    assert "@JayXD-2K" in manifest["codeowners"]
+    assert manifest["documentation"].startswith("https://")

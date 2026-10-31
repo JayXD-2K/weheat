@@ -256,16 +256,16 @@ async def test_scenario_complete_7day_quiet_hours_schedule_cycle(
     # 3. Simulate coordinator receiving new merged settings from portal
     updated_dict = load_fixture("installation_settings_get.json")
     for day in ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"):
-        updated_dict["settings"][f"SilentHours{day}Start"] = 22
-        updated_dict["settings"][f"SilentMinutes{day}Start"] = 0
-        updated_dict["settings"][f"SilentHours{day}Stop"] = 6
-        updated_dict["settings"][f"SilentMinutes{day}Stop"] = 30
+        updated_dict["settings"][f"silentHours{day}Start"] = 22
+        updated_dict["settings"][f"silentMinutes{day}Start"] = 0
+        updated_dict["settings"][f"silentHours{day}Stop"] = 6
+        updated_dict["settings"][f"silentMinutes{day}Stop"] = 30
     for day in ("Saturday", "Sunday"):
-        updated_dict["settings"][f"SilentHours{day}Start"] = 23
-        updated_dict["settings"][f"SilentMinutes{day}Start"] = 30
-        updated_dict["settings"][f"SilentHours{day}Stop"] = 8
-        updated_dict["settings"][f"SilentMinutes{day}Stop"] = 0
-    updated_dict["settings"]["SilentHoursScheduledPreset"] = 2
+        updated_dict["settings"][f"silentHours{day}Start"] = 23
+        updated_dict["settings"][f"silentMinutes{day}Start"] = 30
+        updated_dict["settings"][f"silentHours{day}Stop"] = 8
+        updated_dict["settings"][f"silentMinutes{day}Stop"] = 0
+    updated_dict["settings"]["silentHoursScheduledPreset"] = 2
 
     new_settings = ControlBoardSettings.from_api_dict(updated_dict)
     settings_coord.data = new_settings
@@ -381,7 +381,7 @@ async def test_scenario_night_setback_and_cold_snap_override(
 
     # Coordinator reflects Silent 1
     updated_dict = load_fixture("installation_settings_get.json")
-    updated_dict["settings"]["PerformanceModePreset"] = 1
+    updated_dict["settings"]["performanceModePreset"] = 1
     settings_coord.data = ControlBoardSettings.from_api_dict(updated_dict)
     assert perf_select.current_option == "Silent 1"
 
@@ -406,7 +406,7 @@ async def test_scenario_night_setback_and_cold_snap_override(
     settings_coord.async_request_refresh.assert_called_once()
 
     # Coordinator reflects Performance
-    updated_dict["settings"]["PerformanceModePreset"] = 0
+    updated_dict["settings"]["performanceModePreset"] = 0
     settings_coord.data = ControlBoardSettings.from_api_dict(updated_dict)
     assert perf_select.current_option == "Performance"
 
