@@ -275,9 +275,7 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
                     hp_nested = item.get("heatPump")
                     hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
                     hp_id = (
-                        item.get("heatPumpId")
-                        or hp_dict.get("id")
-                        or item.get("id")
+                        item.get("heatPumpId") or hp_dict.get("id") or item.get("id")
                     )
                     if hp_id == self.heat_pump_info.heatpump_id:
                         installation_id = item.get("installationId") or item.get("id")

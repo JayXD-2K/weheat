@@ -967,7 +967,9 @@ class WeheatClient:
                     if isinstance(parsed.get("expires_in"), (int, float)):
                         expires_in = float(parsed["expires_in"])
             except Exception as err:
-                raise ValueError(f"Invalid JSON in portal session input: {err}") from err
+                raise ValueError(
+                    f"Invalid JSON in portal session input: {err}"
+                ) from err
         else:
             access_token = cleaned
 
@@ -1080,7 +1082,10 @@ class WeheatClient:
                     allow_redirects=False,
                 ) as post_resp:
                     location = post_resp.headers.get("Location", "")
-                    if post_resp.status not in (301, 302, 303, 307, 308) or not location:
+                    if (
+                        post_resp.status not in (301, 302, 303, 307, 308)
+                        or not location
+                    ):
                         raise WeheatAuthError(
                             "Invalid Weheat portal email or password",
                             status_code=401,

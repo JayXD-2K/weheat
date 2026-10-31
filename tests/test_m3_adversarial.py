@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import math
 from unittest.mock import MagicMock
 
@@ -247,7 +248,9 @@ class TestExtremeTelemetryPayloads:
         # ISO format
         base_log.last_cooling_time = "2026-10-30T07:00:00Z"
         base_log.cooling_start_conditions_raw = 0
-        assert wait_desc.value_fn(base_log) == "2026-10-30T07:00:00Z"
+        assert wait_desc.value_fn(base_log) == datetime.datetime(
+            2026, 10, 30, 7, 0, tzinfo=datetime.UTC
+        )
         assert last_desc.value_fn(base_log) == "2026-10-30T07:00:00Z"
 
         # None timestamp

@@ -64,9 +64,6 @@ class WeHeatSensorEntityDescription(SensorEntityDescription):
 # The portal counts the conditions the heat pump waits on and leaves these two
 # settings out of its tally.
 COOLING_CONDITIONS_NOT_COUNTED = ("control_method", "contact_not_blocked")
-CONDITIONS_COUNTED = len(COOLING_START_CONDITION_BITS) - len(
-    COOLING_CONDITIONS_NOT_COUNTED
-)
 
 
 def _latched_reason(
@@ -111,9 +108,7 @@ SENSORS: tuple[WeHeatSensorEntityDescription, ...] = (
         key="cop",
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=DISPLAY_PRECISION_COP,
-        value_fn=lambda status: (
-            round(status.cop, 2) if status.cop is not None else None
-        ),
+        value_fn=lambda status: status.cop,
     ),
     WeHeatSensorEntityDescription(
         translation_key="water_inlet_temperature",
@@ -324,7 +319,6 @@ COOLING_SENSORS: tuple[WeHeatSensorEntityDescription, ...] = (
         translation_key="cooling_conditions_met",
         key="cooling_conditions_met",
         state_class=SensorStateClass.MEASUREMENT,
-        native_unit_of_measurement=f"of {CONDITIONS_COUNTED}",
         value_fn=lambda status: (
             None
             if status.cooling_start_conditions is None
@@ -347,10 +341,10 @@ COOLING_SENSORS: tuple[WeHeatSensorEntityDescription, ...] = (
         key="cooling_wait_until",
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda status: (
-            None
-            if status.cooling_start_conditions is None
-            or status.cooling_start_conditions.get("exponential_backoff", False)
-            else status.last_cooling_time
+            status.cooling_available_from
+            if status.cooling_start_conditions is not None
+            and not status.cooling_start_conditions.get("exponential_backoff", False)
+            else None
         ),
     ),
     WeHeatSensorEntityDescription(

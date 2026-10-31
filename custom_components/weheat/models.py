@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from enum import IntEnum
 from typing import Any
 
@@ -526,6 +527,23 @@ class HeatPumpLog:
             name: bool(self.cooling_start_conditions_raw & bit)
             for name, bit in COOLING_START_CONDITION_BITS.items()
         }
+
+    @property
+    def cooling_available_from(self) -> datetime | None:
+        """The moment when restart delay after the last cooling cycle expires."""
+        if not self.last_cooling_time:
+            return None
+        try:
+            if isinstance(self.last_cooling_time, datetime):
+                dt = self.last_cooling_time
+            else:
+                raw = str(self.last_cooling_time).replace("Z", "+00:00")
+                dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            return dt + timedelta(minutes=self.cooling_exponential_backoff or 0)
+        except Exception:
+            return None
 
     @classmethod
     def from_api_dict(cls, data: dict[str, Any]) -> HeatPumpLog:

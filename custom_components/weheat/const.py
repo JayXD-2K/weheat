@@ -38,12 +38,8 @@ OAUTH2_CLIENT_ID = "weheat-portal"
 OAUTH2_SCOPES = ["openid", "offline_access"]
 
 # Portal PKCE & Session Authentication Configuration
-PORTAL_AUTH_URL = (
-    "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/auth"
-)
-PORTAL_TOKEN_URL = (
-    "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/token"
-)
+PORTAL_AUTH_URL = "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/auth"
+PORTAL_TOKEN_URL = "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/token"
 PORTAL_REDIRECT_URI = "https://portal.weheat.nl/api/auth/callback/keycloak"
 PORTAL_SCOPES = ["openid", "email", "profile", "offline_access"]
 

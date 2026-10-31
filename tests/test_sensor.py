@@ -166,7 +166,7 @@ def test_base_sensor_values(mock_log: HeatPumpLog) -> None:
 
     assert desc_map["power_output"].value_fn(mock_log) == 4700.0
     assert desc_map["power_input"].value_fn(mock_log) == 1120.0
-    assert desc_map["cop"].value_fn(mock_log) == 4.2
+    assert desc_map["cop"].value_fn(mock_log) == pytest.approx(4700.0 / 1120.0)
     assert desc_map["water_inlet_temperature"].value_fn(mock_log) == 32.4
     assert desc_map["water_outlet_temperature"].value_fn(mock_log) == 37.2
     assert desc_map["ch_inlet_temperature"].value_fn(mock_log) == 35.8

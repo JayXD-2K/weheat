@@ -182,7 +182,9 @@ class WeheatOptionsFlowHandler(OptionsFlow):
                     new_options[CONF_PORTAL_TOKEN] = portal_token
                     return self.async_create_entry(title="", data=new_options)
                 except (ValueError, WeheatError) as err:
-                    _LOGGER.error("Weheat Portal session token validation failed: %s", err)
+                    _LOGGER.error(
+                        "Weheat Portal session token validation failed: %s", err
+                    )
                     errors["base"] = "invalid_portal_auth"
                 except Exception as err:
                     _LOGGER.exception(
