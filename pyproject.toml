@@ -1,7 +1,7 @@
 [project]
 name = "weheat-custom"
 version = "1.1.0"
-description = "Custom Home Assistant integration for Weheat heat pumps with Quiet Mode control"
+description = "Unofficial custom Home Assistant integration for Weheat heat pumps with Quiet Mode control"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
