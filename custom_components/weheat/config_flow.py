@@ -158,9 +158,14 @@ class OAuth2FlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
             return self.async_create_entry(title=ENTRY_TITLE, data=data)
 
         self._abort_if_unique_id_mismatch(reason="wrong_account")
-        return self.async_update_reload_and_abort(
-            self._get_reauth_entry(), data_updates=data
-        )
+        reauth_entry = self._get_reauth_entry()
+        if getattr(reauth_entry, "update_listeners", None) and hasattr(
+            self, "async_update_and_abort"
+        ):
+            if hasattr(reauth_entry, "runtime_data"):
+                reauth_entry.runtime_data = []
+            return self.async_update_and_abort(reauth_entry, data_updates=data)
+        return self.async_update_reload_and_abort(reauth_entry, data_updates=data)
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
@@ -187,10 +192,17 @@ class OAuth2FlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
 class WeheatOptionsFlowHandler(OptionsFlow):
     """Options flow for configuring Weheat Portal PKCE or session authentication."""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
+    def __init__(self, config_entry: ConfigEntry | None = None) -> None:
         """Initialize the Weheat options flow handler."""
         super().__init__()
         self._config_entry = config_entry
+
+    @property
+    def _entry(self) -> ConfigEntry | None:
+        """Return the active config entry."""
+        if self._config_entry is not None:
+            return self._config_entry
+        return getattr(self, "config_entry", None)
 
     @staticmethod
     def _build_schema(current_username: str = "") -> Any:
@@ -213,7 +225,7 @@ class WeheatOptionsFlowHandler(OptionsFlow):
     ) -> ConfigFlowResult:
         """Manage Weheat Portal authentication options."""
         errors: dict[str, str] = {}
-        existing_options = dict(getattr(self._config_entry, "options", None) or {})
+        existing_options = dict(getattr(self._entry, "options", None) or {})
         current_username = str(existing_options.get(CONF_PORTAL_USERNAME, ""))
 
         if user_input is not None:
@@ -249,7 +261,15 @@ class WeheatOptionsFlowHandler(OptionsFlow):
                     errors["base"] = "invalid_portal_auth"
             elif raw_session:
                 try:
-                    portal_token = WeheatClient.parse_portal_session_input(raw_session)
+                    cookie_dict = WeheatClient.parse_portal_cookie_input(raw_session)
+                    if cookie_dict:
+                        portal_token = await client.async_refresh_portal_session(
+                            cookie_dict
+                        )
+                    else:
+                        portal_token = WeheatClient.parse_portal_session_input(
+                            raw_session
+                        )
                     await client.async_get_installation_topology(
                         token=portal_token[CONF_ACCESS_TOKEN]
                     )

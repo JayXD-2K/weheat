@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import inspect
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -268,9 +269,23 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
         if not installation_id:
             # Fallback: discover topology from portal
             try:
-                topology = await self.client.async_get_installation_topology(
-                    token=token
-                )
+                try:
+                    topology = await self.client.async_get_installation_topology(
+                        token=token
+                    )
+                except WeheatAuthError as auth_err:
+                    if (
+                        auth_err.status_code == 401
+                        and isinstance(self.session, WeheatPortalSession)
+                        and self.session.can_reauthenticate
+                    ):
+                        await self.session.async_force_refresh()
+                        token = self.session.token.get(CONF_ACCESS_TOKEN)
+                        topology = await self.client.async_get_installation_topology(
+                            token=token
+                        )
+                    else:
+                        raise
                 for item in topology:
                     hp_nested = item.get("heatPump")
                     hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
@@ -287,9 +302,7 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
                             self.heat_pump_info.control_board_id = str(cb_id)
                         break
             except (
-                WeheatAuthError,
-                WeheatApiError,
-                WeheatTimeoutError,
+                WeheatError,
                 ClientError,
             ) as err:
                 LOGGER.warning("Could not resolve installation topology: %s", err)
@@ -300,16 +313,29 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
             )
 
         try:
-            return await self.client.async_get_installation_settings(
-                installation_id, token=token
-            )
+            try:
+                return await self.client.async_get_installation_settings(
+                    installation_id, token=token
+                )
+            except WeheatAuthError as auth_err:
+                if (
+                    auth_err.status_code == 401
+                    and isinstance(self.session, WeheatPortalSession)
+                    and self.session.can_reauthenticate
+                ):
+                    await self.session.async_force_refresh()
+                    token = self.session.token.get(CONF_ACCESS_TOKEN)
+                    return await self.client.async_get_installation_settings(
+                        installation_id, token=token
+                    )
+                raise
         except WeheatAuthError as err:
             if err.status_code == 403:
                 raise UpdateFailed(
                     f"Portal settings access forbidden (HTTP 403). Configure Weheat Portal credentials in integration options for settings/control access: {err}"
                 ) from err
             raise ConfigEntryAuthFailed(f"Authentication failed: {err}") from err
-        except (WeheatApiError, WeheatTimeoutError, ClientError) as err:
+        except (WeheatError, ClientError) as err:
             raise UpdateFailed(f"Error communicating with Weheat API: {err}") from err
 
 
@@ -377,6 +403,12 @@ class WeheatPortalSession:
         return bool(username and password)
 
     @property
+    def can_reauthenticate(self) -> bool:
+        """Return True if saved credentials exist to re-authenticate on a 401 response."""
+        username, password = self._get_portal_credentials()
+        return bool(username and password)
+
+    @property
     def token(self) -> dict[str, Any]:
         """Return the active token dictionary."""
         if not (self._portal_token and self._portal_token.get(CONF_ACCESS_TOKEN)):
@@ -420,6 +452,20 @@ class WeheatPortalSession:
                 "Please configure your Weheat Portal account in the integration Configure options."
             )
 
+    async def async_force_refresh(self) -> None:
+        """Invalidate cached portal token expiry and force immediate token renewal."""
+        if isinstance(self._portal_token, dict):
+            self._portal_token = dict(self._portal_token)
+            self._portal_token["expires_at"] = 0.0
+        options = getattr(self.config_entry, "options", None)
+        if isinstance(options, dict) and isinstance(
+            options.get(CONF_PORTAL_TOKEN), dict
+        ):
+            updated_tok = dict(options[CONF_PORTAL_TOKEN])
+            updated_tok["expires_at"] = 0.0
+            options[CONF_PORTAL_TOKEN] = updated_tok
+        await self.async_ensure_token_valid()
+
     async def async_ensure_token_valid(self) -> None:
         """Ensure portal token (or fallback OAuth2Session token) is valid."""
         latest_stored = self._extract_portal_token()
@@ -440,6 +486,11 @@ class WeheatPortalSession:
             if self._portal_token.get(CONF_ACCESS_TOKEN) and expires_at > now + 30.0:
                 return
 
+            session_cookies = self._portal_token.get("session_cookies")
+            has_session_cookies = isinstance(session_cookies, dict) and bool(
+                session_cookies
+            )
+
             refresh_token = self._portal_token.get("refresh_token")
             if refresh_token:
                 try:
@@ -451,6 +502,24 @@ class WeheatPortalSession:
                 except WeheatError as err:
                     LOGGER.debug(
                         "Portal refresh_token renewal failed (%s), checking PKCE fallback",
+                        err,
+                    )
+                    if not ((username and password) or has_session_cookies):
+                        raise
+
+            if has_session_cookies and inspect.iscoroutinefunction(
+                getattr(self.client, "async_refresh_portal_session", None)
+            ):
+                try:
+                    refreshed = await self.client.async_refresh_portal_session(
+                        session_cookies,
+                        previous_access_token=self._portal_token.get(CONF_ACCESS_TOKEN),
+                    )
+                    self._persist_portal_token(refreshed)
+                    return
+                except WeheatError as err:
+                    LOGGER.debug(
+                        "Portal NextAuth session renewal failed (%s), checking PKCE fallback",
                         err,
                     )
                     if not (username and password):

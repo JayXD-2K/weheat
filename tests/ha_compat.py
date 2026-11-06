@@ -629,6 +629,12 @@ class AbstractOAuth2FlowHandler:
         entry.data.update(data_updates)
         return {"type": "abort", "reason": "reauth_successful", "entry": entry}
 
+    def async_update_and_abort(
+        self, entry: ConfigEntry, data_updates: dict[str, Any]
+    ) -> dict[str, Any]:
+        entry.data.update(data_updates)
+        return {"type": "abort", "reason": "reauth_successful", "entry": entry}
+
     def async_show_form(
         self,
         step_id: str,

@@ -104,9 +104,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
                 if isinstance(control_session.token, dict)
                 else None
             )
-            topology_items = await client.async_get_installation_topology(
-                token=portal_token
-            )
+            try:
+                topology_items = await client.async_get_installation_topology(
+                    token=portal_token
+                )
+            except WeheatAuthError as auth_err:
+                if (
+                    auth_err.status_code == HTTPStatus.UNAUTHORIZED
+                    and control_session.can_reauthenticate
+                ):
+                    await control_session.async_force_refresh()
+                    portal_token = (
+                        control_session.token.get(CONF_ACCESS_TOKEN)
+                        if isinstance(control_session.token, dict)
+                        else None
+                    )
+                    topology_items = await client.async_get_installation_topology(
+                        token=portal_token
+                    )
+                else:
+                    raise
             for item in topology_items:
                 hp_nested = item.get("heatPump")
                 hp_dict = hp_nested if isinstance(hp_nested, dict) else {}

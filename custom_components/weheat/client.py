@@ -25,9 +25,11 @@ from .const import (
     DEFAULT_TIMEOUT_SECONDS,
     PORTAL_AUTH_URL,
     PORTAL_CLIENT_ID,
+    PORTAL_NEXTAUTH_SESSION_URL,
     PORTAL_REDIRECT_URI,
     PORTAL_SCOPES,
     PORTAL_TOKEN_URL,
+    PORTAL_WEB_BASE_URL,
     SETTINGS_REQUEST_STATUS_MAP,
     VALID_SILENT_SCHEDULE_KEYS,
 )
@@ -1059,6 +1061,29 @@ class WeheatClient:
         return None
 
     @classmethod
+    def parse_portal_cookie_input(cls, raw_input: str) -> dict[str, str] | None:
+        """Parse a browser Cookie header or NextAuth session cookie string if present."""
+        cleaned = raw_input.strip()
+        if not cleaned or cleaned.startswith("{"):
+            return None
+        if cleaned.lower().startswith("cookie:"):
+            cleaned = cleaned[7:].strip()
+        if "next-auth.session-token" not in cleaned:
+            return None
+
+        cookies: dict[str, str] = {}
+        for part in cleaned.split(";"):
+            item = part.strip()
+            if not item or "=" not in item:
+                continue
+            key, val = item.split("=", 1)
+            key = key.strip()
+            val = val.strip()
+            if key and val:
+                cookies[key] = val
+        return cookies if any("next-auth.session-token" in k for k in cookies) else None
+
+    @classmethod
     def parse_portal_session_input(cls, raw_input: str) -> dict[str, Any]:
         """Parse a raw portal JWT or NextAuth /api/auth/session JSON payload.
 
@@ -1081,25 +1106,44 @@ class WeheatClient:
         access_token: str | None = None
         refresh_token: str | None = None
         expires_in: float | None = None
+        session_cookies: dict[str, str] | None = None
 
         if cleaned.startswith("{"):
             try:
                 parsed = json_lib.loads(cleaned)
                 if isinstance(parsed, dict):
+                    nested_tok = (
+                        parsed.get("token")
+                        if isinstance(parsed.get("token"), dict)
+                        else {}
+                    )
+                    nested_user = (
+                        parsed.get("user")
+                        if isinstance(parsed.get("user"), dict)
+                        else {}
+                    )
                     access_token = (
                         parsed.get("access_token")
                         or parsed.get("accessToken")
-                        or (
-                            parsed.get("token", {}).get("access_token")
-                            if isinstance(parsed.get("token"), dict)
-                            else None
-                        )
+                        or nested_tok.get("access_token")
+                        or nested_tok.get("accessToken")
+                        or nested_user.get("access_token")
+                        or nested_user.get("accessToken")
                     )
-                    refresh_token = parsed.get("refresh_token") or parsed.get(
-                        "refreshToken"
+                    refresh_token = (
+                        parsed.get("refresh_token")
+                        or parsed.get("refreshToken")
+                        or nested_tok.get("refresh_token")
+                        or nested_tok.get("refreshToken")
                     )
                     if isinstance(parsed.get("expires_in"), (int, float)):
                         expires_in = float(parsed["expires_in"])
+                    if isinstance(parsed.get("session_cookies"), dict):
+                        session_cookies = {
+                            str(k): str(v)
+                            for k, v in parsed["session_cookies"].items()
+                            if k and v
+                        }
             except Exception as err:
                 raise ValueError(
                     f"Invalid JSON in portal session input: {err}"
@@ -1126,6 +1170,8 @@ class WeheatClient:
         }
         if refresh_token:
             token_dict["refresh_token"] = str(refresh_token)
+        if session_cookies:
+            token_dict["session_cookies"] = session_cookies
         return token_dict
 
     async def async_login_portal_pkce(
@@ -1137,21 +1183,35 @@ class WeheatClient:
         redirect_uri: str = PORTAL_REDIRECT_URI,
         client_id: str = PORTAL_CLIENT_ID,
     ) -> dict[str, Any]:
-        """Authenticate directly as weheat-portal via Keycloak OAuth2 PKCE (S256).
+        """Authenticate as weheat-portal via NextAuth + Keycloak OAuth2 PKCE (S256).
 
-        Performs the authorization code + PKCE handshake against auth.weheat.nl
-        and returns a token dictionary containing access_token and refresh_token
-        with full portal read/write permissions.
+        When authenticating as the confidential ``weheat-portal`` client with its
+        NextAuth callback URI, initiates the sign-in through ``portal.weheat.nl``
+        (``/api/auth/csrf`` -> ``/api/auth/signin/keycloak``), submits credentials
+        to Keycloak on ``auth.weheat.nl``, completes the confidential token exchange
+        via ``/api/auth/callback/keycloak``, and retrieves the active session token
+        from ``/api/auth/session``.
         """
         if not username or not username.strip() or not password:
             raise ValueError("username and password must not be empty")
+
+        parsed_redirect = urllib.parse.urlsplit(redirect_uri)
+        portal_web_url = (
+            f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
+            if parsed_redirect.scheme and parsed_redirect.netloc
+            else PORTAL_WEB_BASE_URL
+        )
+        use_nextauth = (
+            "/api/auth/callback/" in parsed_redirect.path
+            and client_id == PORTAL_CLIENT_ID
+        )
 
         code_verifier = secrets.token_urlsafe(48)
         digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
         code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
         state = secrets.token_urlsafe(24)
 
-        auth_params = {
+        auth_params: dict[str, str] | None = {
             "client_id": client_id,
             "response_type": "code",
             "redirect_uri": redirect_uri,
@@ -1160,6 +1220,7 @@ class WeheatClient:
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
+        target_auth_url = auth_url
 
         req_timeout = ClientTimeout(total=self._request_timeout)
         jar = aiohttp.CookieJar()
@@ -1168,9 +1229,72 @@ class WeheatClient:
             async with aiohttp.ClientSession(
                 cookie_jar=jar, timeout=req_timeout
             ) as auth_session:
-                # 1. Fetch Keycloak login page and session cookies
+                if use_nextauth:
+                    # 1a. Fetch NextAuth CSRF token and cookies from portal.weheat.nl
+                    csrf_url = f"{portal_web_url}/api/auth/csrf"
+                    async with auth_session.get(
+                        csrf_url,
+                        headers={
+                            "User-Agent": "Mozilla/5.0",
+                            "Accept": "application/json",
+                        },
+                    ) as csrf_resp:
+                        if csrf_resp.status >= 400:
+                            text = await csrf_resp.text()
+                            raise WeheatAuthError(
+                                f"Portal CSRF request failed with HTTP {csrf_resp.status}: {text[:200]}",
+                                status_code=csrf_resp.status,
+                            )
+                        csrf_data = await csrf_resp.json(content_type=None)
+
+                    csrf_token = (
+                        csrf_data.get("csrfToken")
+                        if isinstance(csrf_data, dict)
+                        else None
+                    )
+                    if not csrf_token:
+                        raise WeheatAuthError(
+                            "Missing csrfToken in Weheat portal CSRF response",
+                            status_code=401,
+                        )
+
+                    # 1b. Initiate NextAuth Keycloak sign-in to obtain encrypted PKCE/state cookies
+                    signin_url = f"{portal_web_url}/api/auth/signin/keycloak"
+                    async with auth_session.post(
+                        signin_url,
+                        data={
+                            "csrfToken": str(csrf_token),
+                            "callbackUrl": portal_web_url,
+                        },
+                        headers={
+                            "User-Agent": "Mozilla/5.0",
+                            "Content-Type": "application/x-www-form-urlencoded",
+                        },
+                        allow_redirects=False,
+                    ) as signin_resp:
+                        signin_loc = signin_resp.headers.get("Location", "")
+                        if not signin_loc and signin_resp.status == 200:
+                            try:
+                                signin_data = await signin_resp.json(content_type=None)
+                                if isinstance(signin_data, dict):
+                                    signin_loc = str(signin_data.get("url") or "")
+                            except Exception:  # noqa: S110
+                                pass
+                        if (
+                            signin_resp.status not in (200, 301, 302, 303, 307, 308)
+                            or not signin_loc
+                            or "/api/auth/error" in signin_loc
+                        ):
+                            raise WeheatAuthError(
+                                f"Failed to initiate Weheat portal Keycloak sign-in (HTTP {signin_resp.status})",
+                                status_code=401,
+                            )
+                        target_auth_url = signin_loc
+                        auth_params = None
+
+                # 2. Fetch Keycloak login page and session cookies
                 async with auth_session.get(
-                    auth_url,
+                    target_auth_url,
                     params=auth_params,
                     headers={"User-Agent": "Mozilla/5.0"},
                 ) as get_resp:
@@ -1196,12 +1320,12 @@ class WeheatClient:
 
                 login_action_url = html.unescape(action_match.group(1))
                 if login_action_url.startswith("/"):
-                    parsed_auth = urllib.parse.urlsplit(auth_url)
+                    parsed_auth = urllib.parse.urlsplit(target_auth_url)
                     login_action_url = (
                         f"{parsed_auth.scheme}://{parsed_auth.netloc}{login_action_url}"
                     )
 
-                # 2. Submit credentials with allow_redirects=False to capture ?code=...
+                # 3. Submit credentials with allow_redirects=False to capture ?code=...
                 async with auth_session.post(
                     login_action_url,
                     data={
@@ -1238,7 +1362,78 @@ class WeheatClient:
                     )
                 auth_code = code_list[0]
 
-                # 3. Exchange authorization code + PKCE verifier for portal tokens
+                if use_nextauth:
+                    # 4a. Complete NextAuth callback so portal.weheat.nl exchanges code with client_secret
+                    callback_url = location
+                    if callback_url.startswith("/"):
+                        callback_url = f"{portal_web_url}{callback_url}"
+
+                    async with auth_session.get(
+                        callback_url,
+                        headers={"User-Agent": "Mozilla/5.0"},
+                        allow_redirects=False,
+                    ) as cb_resp:
+                        cb_loc = cb_resp.headers.get("Location", "")
+                        if cb_resp.status in (400, 401, 403) or (
+                            cb_loc
+                            and ("/api/auth/error" in cb_loc or "error=" in cb_loc)
+                        ):
+                            raise WeheatAuthError(
+                                f"Portal callback rejected (HTTP {cb_resp.status}): {cb_loc or 'OAuthCallback'}",
+                                status_code=cb_resp.status
+                                if cb_resp.status >= 400
+                                else 401,
+                            )
+                        if cb_resp.status >= 400:
+                            err_text = await cb_resp.text()
+                            raise WeheatApiError(
+                                f"Portal callback failed (HTTP {cb_resp.status}): {err_text[:200]}",
+                                status_code=cb_resp.status,
+                            )
+
+                    # 4b. Fetch active portal token from NextAuth /api/auth/session
+                    session_url = f"{portal_web_url}/api/auth/session"
+                    async with auth_session.get(
+                        session_url,
+                        headers={
+                            "User-Agent": "Mozilla/5.0",
+                            "Accept": "application/json",
+                        },
+                    ) as sess_resp:
+                        if sess_resp.status in (400, 401, 403):
+                            err_text = await sess_resp.text()
+                            raise WeheatAuthError(
+                                f"Portal session request rejected (HTTP {sess_resp.status}): {err_text[:200]}",
+                                status_code=sess_resp.status,
+                            )
+                        if sess_resp.status >= 400:
+                            err_text = await sess_resp.text()
+                            raise WeheatApiError(
+                                f"Portal session request failed (HTTP {sess_resp.status}): {err_text[:200]}",
+                                status_code=sess_resp.status,
+                            )
+                        sess_text = await sess_resp.text()
+
+                    try:
+                        token_data = self.parse_portal_session_input(sess_text)
+                    except ValueError as err:
+                        raise WeheatAuthError(
+                            f"Portal session response did not contain a valid access token: {err}",
+                            status_code=401,
+                        ) from err
+
+                    active_jar = getattr(auth_session, "cookie_jar", jar)
+                    session_cookies = {
+                        cookie.key: cookie.value
+                        for cookie in active_jar
+                        if getattr(cookie, "key", None)
+                        and getattr(cookie, "value", None)
+                    }
+                    if session_cookies:
+                        token_data["session_cookies"] = session_cookies
+                    return token_data
+
+                # 4. Direct OAuth2 token exchange fallback (for custom public clients)
                 async with auth_session.post(
                     token_url,
                     data={
@@ -1288,6 +1483,87 @@ class WeheatClient:
 
         expires_in = float(token_data.get("expires_in", 300))
         token_data["expires_at"] = time.time() + expires_in
+        return token_data
+
+    async def async_refresh_portal_session(
+        self,
+        session_cookies: dict[str, str],
+        session_url: str = PORTAL_NEXTAUTH_SESSION_URL,
+        previous_access_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Refresh a portal token via NextAuth /api/auth/session using session cookies."""
+        if not isinstance(session_cookies, dict) or not session_cookies:
+            raise ValueError("session_cookies must be a non-empty dictionary")
+
+        req_timeout = ClientTimeout(total=self._request_timeout)
+        jar = aiohttp.CookieJar()
+        try:
+            async with (
+                aiohttp.ClientSession(
+                    cookie_jar=jar, cookies=session_cookies, timeout=req_timeout
+                ) as auth_session,
+                auth_session.get(
+                    session_url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "application/json",
+                    },
+                ) as response,
+            ):
+                if response.status in (400, 401, 403):
+                    err_text = await response.text()
+                    raise WeheatAuthError(
+                        f"Portal session refresh rejected (HTTP {response.status}): {err_text[:200]}",
+                        status_code=response.status,
+                    )
+                if response.status >= 400:
+                    err_text = await response.text()
+                    raise WeheatApiError(
+                        f"Portal session refresh failed (HTTP {response.status}): {err_text[:200]}",
+                        status_code=response.status,
+                    )
+                sess_text = await response.text()
+        except (WeheatAuthError, WeheatApiError, WeheatTimeoutError):
+            raise
+        except (
+            TimeoutError,
+            aiohttp.ServerTimeoutError,
+            aiohttp.SocketTimeoutError,
+        ) as err:
+            raise WeheatTimeoutError(
+                f"Portal session refresh timed out: {err}"
+            ) from err
+        except ClientError as err:
+            raise WeheatApiError(
+                f"Connection error during portal session refresh: {err}"
+            ) from err
+
+        try:
+            token_data = self.parse_portal_session_input(sess_text)
+        except ValueError as err:
+            raise WeheatAuthError(
+                f"Portal session expired or returned no access_token: {err}",
+                status_code=401,
+            ) from err
+
+        now = time.time()
+        expires_at = float(token_data.get("expires_at", 0.0))
+        new_access_token = token_data.get("access_token")
+        if expires_at <= now + 30.0 or (
+            previous_access_token
+            and new_access_token == previous_access_token
+            and expires_at <= now + 60.0
+        ):
+            raise WeheatAuthError(
+                "Portal session did not return a refreshed access token",
+                status_code=401,
+            )
+
+        merged_cookies = dict(session_cookies)
+        for cookie in jar:
+            if cookie.key and cookie.value:
+                merged_cookies[cookie.key] = cookie.value
+        token_data["session_cookies"] = merged_cookies
         return token_data
 
     async def async_refresh_portal_token(

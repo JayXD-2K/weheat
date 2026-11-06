@@ -30,6 +30,7 @@ TO_REDACT: set[str] = {
     "portal_username",
     "portal_password",
     "portal_session_token",
+    "session_cookies",
 }
 
 

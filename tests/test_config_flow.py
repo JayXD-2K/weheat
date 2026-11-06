@@ -398,3 +398,86 @@ async def test_application_credentials_platform_implementation() -> None:
         impl.token_url
         == "https://auth.weheat.nl/auth/realms/Weheat/protocol/openid-connect/token/"
     )
+
+
+@pytest.mark.asyncio
+async def test_oauth_reauth_with_update_listeners_uses_async_update_and_abort(
+    flow_handler: OAuth2FlowHandler,
+) -> None:
+    """Verify reauth uses async_update_and_abort when update_listeners exist (HA 2026.12.0 compatibility)."""
+    mock_user_id = "00000000-0000-0000-0000-000000000001"
+    existing_entry = ConfigEntry(
+        entry_id="reauth_entry",
+        data={CONF_TOKEN: {CONF_ACCESS_TOKEN: "old_token"}},
+        unique_id=mock_user_id,
+    )
+    existing_entry.runtime_data = [MagicMock()]
+    existing_entry.add_update_listener(AsyncMock())
+    flow_handler.source = SOURCE_REAUTH
+    flow_handler._reauth_entry = existing_entry
+
+    new_data = {
+        CONF_TOKEN: {
+            CONF_ACCESS_TOKEN: "new_refreshed_token",
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.weheat.config_flow.WeheatClient.async_get_user_id",
+            new=AsyncMock(return_value=mock_user_id),
+        ),
+        patch.object(
+            flow_handler,
+            "async_update_and_abort",
+            wraps=flow_handler.async_update_and_abort,
+        ) as mock_update_and_abort,
+        patch.object(
+            flow_handler,
+            "async_update_reload_and_abort",
+            wraps=flow_handler.async_update_reload_and_abort,
+        ) as mock_update_reload_and_abort,
+    ):
+        result = await flow_handler.async_oauth_create_entry(new_data)
+
+    assert result["type"] == "abort"
+    assert result["reason"] == "reauth_successful"
+    mock_update_and_abort.assert_called_once_with(existing_entry, data_updates=new_data)
+    mock_update_reload_and_abort.assert_not_called()
+    assert existing_entry.runtime_data == []
+    assert existing_entry.data[CONF_TOKEN][CONF_ACCESS_TOKEN] == "new_refreshed_token"
+
+
+@pytest.mark.asyncio
+async def test_options_flow_portal_cookie_input_success() -> None:
+    """Verify options flow accepts NextAuth cookie header and refreshes via async_refresh_portal_session."""
+    entry = ConfigEntry(entry_id="opt_entry", options={})
+    opt_flow = OAuth2FlowHandler.async_get_options_flow(entry)
+
+    mock_portal_token = {
+        "access_token": "cookie_derived_jwt",
+        "expires_at": 9999999999.0,
+        "session_cookies": {"__Secure-next-auth.session-token": "cookie_tok_abc"},
+    }
+
+    with (
+        patch(
+            "custom_components.weheat.config_flow.WeheatClient.async_refresh_portal_session",
+            new=AsyncMock(return_value=mock_portal_token),
+        ) as mock_refresh_session,
+        patch(
+            "custom_components.weheat.config_flow.WeheatClient.async_get_installation_topology",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        res = await opt_flow.async_step_init(
+            {
+                "portal_session_token": "__Secure-next-auth.session-token=cookie_tok_abc",
+            }
+        )
+
+    assert res["type"] == "create_entry"
+    mock_refresh_session.assert_awaited_once_with(
+        {"__Secure-next-auth.session-token": "cookie_tok_abc"}
+    )
+    assert res["data"]["portal_token"] == mock_portal_token
