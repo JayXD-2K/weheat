@@ -122,6 +122,52 @@ class WeheatClient:
         """Return the base URL used for portal/control endpoints."""
         return self._portal_base_url
 
+    @staticmethod
+    def _sanitize_path_segment(value: str, name: str = "id") -> str:
+        """Validate and return a clean URL path segment free of traversal or query characters."""
+        cleaned = str(value).strip()
+        if (
+            not cleaned
+            or ".." in cleaned
+            or any(c in cleaned for c in ("/", "\\", "?", "#"))
+            or any(ord(c) <= 32 for c in cleaned)
+        ):
+            raise ValueError(f"Invalid {name}: contains unsafe path characters")
+        return cleaned
+
+    @staticmethod
+    def _validate_trusted_url(url: str, expected_origin: str, context: str) -> None:
+        """Ensure a redirect or form action URL uses HTTPS and matches the expected origin."""
+        parsed = urllib.parse.urlsplit(url)
+        actual_origin = f"{parsed.scheme}://{parsed.netloc}".lower()
+        if parsed.scheme.lower() != "https" or actual_origin != expected_origin.lower():
+            raise WeheatAuthError(
+                f"Untrusted URL origin in {context}: {actual_origin}",
+                status_code=401,
+            )
+
+    @staticmethod
+    async def _extract_error_message(
+        response: Any, default_msg: str
+    ) -> tuple[str, Any]:
+        """Extract a human-readable error message and JSON payload from an error response."""
+        error_msg = default_msg
+        err_payload = None
+        try:
+            err_payload = await response.json(content_type=None)
+            if isinstance(err_payload, dict):
+                error_msg = (
+                    err_payload.get("message")
+                    or err_payload.get("error_description")
+                    or err_payload.get("error")
+                    or error_msg
+                )
+        except Exception:
+            text = await response.text()
+            if text:
+                error_msg = text
+        return error_msg, err_payload
+
     async def _request(
         self,
         method: str,
@@ -161,38 +207,15 @@ class WeheatClient:
                     return {}
 
                 if status in (401, 403):
-                    error_msg = f"Authentication failed with status {status}"
-                    try:
-                        err_payload = await response.json(content_type=None)
-                        if isinstance(err_payload, dict):
-                            error_msg = (
-                                err_payload.get("message")
-                                or err_payload.get("error_description")
-                                or err_payload.get("error")
-                                or error_msg
-                            )
-                    except Exception:
-                        text = await response.text()
-                        if text:
-                            error_msg = text
+                    error_msg, _ = await self._extract_error_message(
+                        response, f"Authentication failed with status {status}"
+                    )
                     raise WeheatAuthError(error_msg, status_code=status)
 
                 if status >= 400:
-                    error_msg = f"API request to {url} failed with status {status}"
-                    err_payload = None
-                    try:
-                        err_payload = await response.json(content_type=None)
-                        if isinstance(err_payload, dict):
-                            error_msg = (
-                                err_payload.get("message")
-                                or err_payload.get("error_description")
-                                or err_payload.get("error")
-                                or error_msg
-                            )
-                    except Exception:
-                        text = await response.text()
-                        if text:
-                            error_msg = text
+                    error_msg, err_payload = await self._extract_error_message(
+                        response, f"API request to {url} failed with status {status}"
+                    )
                     raise WeheatApiError(
                         error_msg, status_code=status, response_data=err_payload
                     )
@@ -325,7 +348,8 @@ class WeheatClient:
         Returns:
             Dictionary of heat pump specifications.
         """
-        url = f"{self._base_url}/api/v1/heat-pumps/{uuid}"
+        safe_uuid = self._sanitize_path_segment(uuid, "uuid")
+        url = f"{self._base_url}/api/v1/heat-pumps/{safe_uuid}"
         data = await self._request("GET", url, token=token)
         return data if isinstance(data, dict) else {}
 
@@ -398,6 +422,37 @@ class WeheatClient:
     # Alias for topology discovery
     async_get_installations_fully_expanded = async_get_installation_topology
 
+    @staticmethod
+    def apply_topology_to_heat_pumps(
+        topology_items: list[dict[str, Any]],
+        heat_pumps: list[HeatPumpInfo],
+        *,
+        allow_single_fallback: bool = True,
+    ) -> None:
+        """Populate control_board_id and installation_id on HeatPumpInfo instances from topology."""
+        for item in topology_items:
+            if not isinstance(item, dict):
+                continue
+            hp_nested = item.get("heatPump")
+            hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
+            cb_id = item.get("controlBoardId") or hp_dict.get("controlBoardId")
+            hp_id = item.get("heatPumpId") or hp_dict.get("id") or item.get("id")
+            inst_id = item.get("installationId") or (
+                item.get("id")
+                if hp_dict or not allow_single_fallback or item.get("id") != hp_id
+                else None
+            )
+            for pump_info in heat_pumps:
+                if str(pump_info.heatpump_id) == str(hp_id) or (
+                    allow_single_fallback
+                    and len(heat_pumps) == 1
+                    and not pump_info.control_board_id
+                ):
+                    if cb_id and not pump_info.control_board_id:
+                        pump_info.control_board_id = str(cb_id)
+                    if inst_id and not pump_info.installation_id:
+                        pump_info.installation_id = str(inst_id)
+
     async def async_get_control_board_id(
         self,
         target_id: str,
@@ -459,7 +514,8 @@ class WeheatClient:
         Returns:
             HeatPumpLog dataclass instance.
         """
-        url = f"{self._base_url}/api/v1/heat-pumps/{uuid}/logs/latest"
+        safe_uuid = self._sanitize_path_segment(uuid, "uuid")
+        url = f"{self._base_url}/api/v1/heat-pumps/{safe_uuid}/logs/latest"
         data = await self._request("GET", url, token=token)
         if isinstance(data, dict):
             return HeatPumpLog.from_api_dict(data)
@@ -482,14 +538,15 @@ class WeheatClient:
         Returns:
             HeatPumpEnergy dataclass instance.
         """
-        url = f"{self._base_url}/api/v1/energy-logs/{uuid}/total"
+        safe_uuid = self._sanitize_path_segment(uuid, "uuid")
+        url = f"{self._base_url}/api/v1/energy-logs/{safe_uuid}/total"
         try:
             data = await self._request("GET", url, token=token)
             if isinstance(data, dict):
                 return HeatPumpEnergy.from_api_dict(data)
         except WeheatApiError as err:
             if err.status_code == 404:
-                fallback_url = f"{self._base_url}/total/{uuid}"
+                fallback_url = f"{self._base_url}/total/{safe_uuid}"
                 data = await self._request("GET", fallback_url, token=token)
                 if isinstance(data, dict):
                     return HeatPumpEnergy.from_api_dict(data)
@@ -513,7 +570,8 @@ class WeheatClient:
         Returns:
             ControlBoardSettings dataclass instance.
         """
-        url = f"{self._portal_base_url}/api/v1/installations/{installation_id}/settings"
+        safe_inst_id = self._sanitize_path_segment(installation_id, "installation_id")
+        url = f"{self._portal_base_url}/api/v1/installations/{safe_inst_id}/settings"
         data = await self._request("GET", url, token=token)
         if isinstance(data, dict):
             return ControlBoardSettings.from_api_dict(data)
@@ -546,8 +604,12 @@ class WeheatClient:
             try:
                 await self.async_get_installation_topology(token=token)
                 installation_id = self._installation_cache.get(clean_id)
-            except Exception:
-                pass
+            except Exception as err:
+                _LOGGER.debug(
+                    "Topology lookup for '%s' failed; falling back to target_id: %s",
+                    clean_id,
+                    err,
+                )
 
         effective_id = installation_id or clean_id
         return await self.async_get_installation_settings(
@@ -586,8 +648,11 @@ class WeheatClient:
         if not settings:
             raise ValueError("settings dictionary must not be empty")
 
-        target_cb = self._control_board_cache.get(
-            control_board_id.strip(), control_board_id.strip()
+        target_cb = self._sanitize_path_segment(
+            self._control_board_cache.get(
+                control_board_id.strip(), control_board_id.strip()
+            ),
+            "control_board_id",
         )
         url = f"{self._portal_base_url}/api/v1/control-boards/{target_cb}/settings"
 
@@ -667,6 +732,31 @@ class WeheatClient:
             update_immediately=False,
         )
 
+    @staticmethod
+    def _validate_silent_schedule_dict(schedule: dict[str, int]) -> dict[str, int]:
+        """Validate and normalize day-specific silent hours schedule dictionary."""
+        cleaned_schedule: dict[str, int] = {}
+        for key, value in schedule.items():
+            norm_key = key[0].upper() + key[1:] if key.startswith("silent") else key
+            if norm_key not in VALID_SILENT_SCHEDULE_KEYS:
+                raise ValueError(
+                    f"Unknown schedule key: '{key}'. Must be one of valid SilentHours/SilentMinutes keys."
+                )
+            if not isinstance(value, int):
+                raise ValueError(
+                    f"Schedule value for '{key}' must be integer (must be an integer, got {type(value).__name__})."
+                )
+            if "Hours" in norm_key and not (0 <= value <= 23):
+                raise ValueError(
+                    f"Invalid hour for '{key}': {value}. Must be between 0 and 23."
+                )
+            if "Minutes" in norm_key and not (0 <= value <= 59):
+                raise ValueError(
+                    f"Invalid minute for '{key}': {value}. Must be between 0 and 59."
+                )
+            cleaned_schedule[norm_key] = value
+        return cleaned_schedule
+
     async def async_set_silent_schedule(
         self,
         control_board_id: str,
@@ -686,27 +776,7 @@ class WeheatClient:
         if not schedule:
             raise ValueError("schedule dictionary must not be empty")
 
-        cleaned_schedule: dict[str, int] = {}
-        for key, value in schedule.items():
-            norm_key = key[0].upper() + key[1:] if key.startswith("silent") else key
-            if norm_key not in VALID_SILENT_SCHEDULE_KEYS:
-                raise ValueError(
-                    f"Unknown schedule key: '{key}'. Must be one of valid SilentHours/SilentMinutes keys."
-                )
-            if not isinstance(value, int):
-                raise ValueError(
-                    f"Schedule value for '{key}' must be an integer, got {type(value).__name__}."
-                )
-            if "Hours" in norm_key and not (0 <= value <= 23):
-                raise ValueError(
-                    f"Invalid hour for '{key}': {value}. Must be between 0 and 23."
-                )
-            if "Minutes" in norm_key and not (0 <= value <= 59):
-                raise ValueError(
-                    f"Invalid minute for '{key}': {value}. Must be between 0 and 59."
-                )
-            cleaned_schedule[norm_key] = value
-
+        cleaned_schedule = self._validate_silent_schedule_dict(schedule)
         return await self.async_patch_control_board_settings(
             control_board_id=control_board_id,
             token=token,
@@ -739,17 +809,7 @@ class WeheatClient:
 
         settings: dict[str, Any] = {"SilentHoursScheduledPreset": int(preset)}
         if schedule:
-            for key, value in schedule.items():
-                norm_key = key[0].upper() + key[1:] if key.startswith("silent") else key
-                if norm_key not in VALID_SILENT_SCHEDULE_KEYS:
-                    raise ValueError(f"Unknown schedule key: '{key}'")
-                if not isinstance(value, int):
-                    raise ValueError(f"Schedule value for '{key}' must be integer")
-                if "Hours" in norm_key and not (0 <= value <= 23):
-                    raise ValueError(f"Invalid hour for '{key}': {value}")
-                if "Minutes" in norm_key and not (0 <= value <= 59):
-                    raise ValueError(f"Invalid minute for '{key}': {value}")
-                settings[norm_key] = value
+            settings.update(self._validate_silent_schedule_dict(schedule))
 
         return await self.async_patch_control_board_settings(
             control_board_id=control_board_id,
@@ -865,12 +925,16 @@ class WeheatClient:
         if not control_board_id or not request_id:
             raise ValueError("control_board_id and request_id must not be empty")
 
-        target_cb = self._control_board_cache.get(
-            control_board_id.strip(), control_board_id.strip()
+        target_cb = self._sanitize_path_segment(
+            self._control_board_cache.get(
+                control_board_id.strip(), control_board_id.strip()
+            ),
+            "control_board_id",
         )
+        safe_req_id = self._sanitize_path_segment(request_id, "request_id")
         url = (
             f"{self._portal_base_url}/api/v1/control-boards/"
-            f"{target_cb}/settings/{request_id.strip()}"
+            f"{target_cb}/settings/{safe_req_id}"
         )
         return await self._request("GET", url, token=token)
 
@@ -961,8 +1025,11 @@ class WeheatClient:
         if not variables:
             raise ValueError("variables dictionary must not be empty")
 
-        target_cb = self._control_board_cache.get(
-            control_board_id.strip(), control_board_id.strip()
+        target_cb = self._sanitize_path_segment(
+            self._control_board_cache.get(
+                control_board_id.strip(), control_board_id.strip()
+            ),
+            "control_board_id",
         )
         url = f"{self._portal_base_url}/api/v1/control-boards/{target_cb}/variables"
         return await self._request(
@@ -1032,7 +1099,8 @@ class WeheatClient:
                 f"Invalid boost temperature {target_temperature}. Must be 40.0..65.0 °C."
             )
 
-        url = f"{self._portal_base_url}/api/v1/heat-pumps/{target}/dhw/boost"
+        safe_target = self._sanitize_path_segment(target, "heat_pump_id")
+        url = f"{self._portal_base_url}/api/v1/heat-pumps/{safe_target}/dhw/boost"
         payload = {
             "durationMinutes": duration_minutes,
             "targetTemperature": float(target_temperature),
@@ -1042,6 +1110,22 @@ class WeheatClient:
     # -------------------------------------------------------------------------
     # Portal OAuth2 PKCE & Session Token Authentication
     # -------------------------------------------------------------------------
+
+    @staticmethod
+    async def _raise_for_portal_response(response: Any, context: str) -> None:
+        """Raise WeheatAuthError on 400/401/403 or WeheatApiError on >=400 portal responses."""
+        if response.status in (400, 401, 403):
+            err_text = await response.text()
+            raise WeheatAuthError(
+                f"{context} rejected (HTTP {response.status}): {err_text[:200]}",
+                status_code=response.status,
+            )
+        if response.status >= 400:
+            err_text = await response.text()
+            raise WeheatApiError(
+                f"{context} failed (HTTP {response.status}): {err_text[:200]}",
+                status_code=response.status,
+            )
 
     @staticmethod
     def _decode_jwt_exp(token: str) -> float | None:
@@ -1195,6 +1279,12 @@ class WeheatClient:
         if not username or not username.strip() or not password:
             raise ValueError("username and password must not be empty")
 
+        parsed_auth_base = urllib.parse.urlsplit(auth_url)
+        auth_origin = (
+            f"{parsed_auth_base.scheme}://{parsed_auth_base.netloc}"
+            if parsed_auth_base.scheme and parsed_auth_base.netloc
+            else "https://auth.weheat.nl"
+        )
         parsed_redirect = urllib.parse.urlsplit(redirect_uri)
         portal_web_url = (
             f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
@@ -1290,6 +1380,11 @@ class WeheatClient:
                                 status_code=401,
                             )
                         target_auth_url = signin_loc
+                        if target_auth_url.startswith("/"):
+                            target_auth_url = f"{auth_origin}{target_auth_url}"
+                        self._validate_trusted_url(
+                            target_auth_url, auth_origin, "NextAuth sign-in redirect"
+                        )
                         auth_params = None
 
                 # 2. Fetch Keycloak login page and session cookies
@@ -1324,6 +1419,9 @@ class WeheatClient:
                     login_action_url = (
                         f"{parsed_auth.scheme}://{parsed_auth.netloc}{login_action_url}"
                     )
+                self._validate_trusted_url(
+                    login_action_url, auth_origin, "Keycloak login action"
+                )
 
                 # 3. Submit credentials with allow_redirects=False to capture ?code=...
                 async with auth_session.post(
@@ -1351,6 +1449,23 @@ class WeheatClient:
 
                 parsed_loc = urllib.parse.urlsplit(location)
                 query_params = urllib.parse.parse_qs(parsed_loc.query)
+                expected_state = (
+                    state
+                    if auth_params is not None
+                    else urllib.parse.parse_qs(
+                        urllib.parse.urlsplit(target_auth_url).query
+                    ).get("state", [None])[0]
+                )
+                returned_state = query_params.get("state", [None])[0]
+                if (
+                    expected_state
+                    and returned_state
+                    and returned_state != expected_state
+                ):
+                    raise WeheatAuthError(
+                        "OAuth state mismatch in portal login callback",
+                        status_code=401,
+                    )
                 code_list = query_params.get("code")
                 if not code_list or not code_list[0]:
                     error_desc = query_params.get(
@@ -1367,6 +1482,9 @@ class WeheatClient:
                     callback_url = location
                     if callback_url.startswith("/"):
                         callback_url = f"{portal_web_url}{callback_url}"
+                    self._validate_trusted_url(
+                        callback_url, portal_web_url, "NextAuth callback"
+                    )
 
                     async with auth_session.get(
                         callback_url,
@@ -1400,18 +1518,9 @@ class WeheatClient:
                             "Accept": "application/json",
                         },
                     ) as sess_resp:
-                        if sess_resp.status in (400, 401, 403):
-                            err_text = await sess_resp.text()
-                            raise WeheatAuthError(
-                                f"Portal session request rejected (HTTP {sess_resp.status}): {err_text[:200]}",
-                                status_code=sess_resp.status,
-                            )
-                        if sess_resp.status >= 400:
-                            err_text = await sess_resp.text()
-                            raise WeheatApiError(
-                                f"Portal session request failed (HTTP {sess_resp.status}): {err_text[:200]}",
-                                status_code=sess_resp.status,
-                            )
+                        await self._raise_for_portal_response(
+                            sess_resp, "Portal session request"
+                        )
                         sess_text = await sess_resp.text()
 
                     try:
@@ -1448,18 +1557,9 @@ class WeheatClient:
                         "Content-Type": "application/x-www-form-urlencoded",
                     },
                 ) as token_resp:
-                    if token_resp.status in (400, 401, 403):
-                        err_text = await token_resp.text()
-                        raise WeheatAuthError(
-                            f"Portal token exchange rejected (HTTP {token_resp.status}): {err_text[:200]}",
-                            status_code=token_resp.status,
-                        )
-                    if token_resp.status >= 400:
-                        err_text = await token_resp.text()
-                        raise WeheatApiError(
-                            f"Portal token exchange failed (HTTP {token_resp.status}): {err_text[:200]}",
-                            status_code=token_resp.status,
-                        )
+                    await self._raise_for_portal_response(
+                        token_resp, "Portal token exchange"
+                    )
                     token_data = await token_resp.json(content_type=None)
 
         except (WeheatAuthError, WeheatApiError, WeheatTimeoutError):
@@ -1510,18 +1610,9 @@ class WeheatClient:
                     },
                 ) as response,
             ):
-                if response.status in (400, 401, 403):
-                    err_text = await response.text()
-                    raise WeheatAuthError(
-                        f"Portal session refresh rejected (HTTP {response.status}): {err_text[:200]}",
-                        status_code=response.status,
-                    )
-                if response.status >= 400:
-                    err_text = await response.text()
-                    raise WeheatApiError(
-                        f"Portal session refresh failed (HTTP {response.status}): {err_text[:200]}",
-                        status_code=response.status,
-                    )
+                await self._raise_for_portal_response(
+                    response, "Portal session refresh"
+                )
                 sess_text = await response.text()
         except (WeheatAuthError, WeheatApiError, WeheatTimeoutError):
             raise
@@ -1550,18 +1641,17 @@ class WeheatClient:
         expires_at = float(token_data.get("expires_at", 0.0))
         new_access_token = token_data.get("access_token")
         if expires_at <= now + 30.0 or (
-            previous_access_token
-            and new_access_token == previous_access_token
-            and expires_at <= now + 60.0
+            previous_access_token and new_access_token == previous_access_token
         ):
             raise WeheatAuthError(
                 "Portal session did not return a refreshed access token",
                 status_code=401,
             )
 
+        active_jar = getattr(auth_session, "cookie_jar", jar)
         merged_cookies = dict(session_cookies)
-        for cookie in jar:
-            if cookie.key and cookie.value:
+        for cookie in active_jar:
+            if getattr(cookie, "key", None) and getattr(cookie, "value", None):
                 merged_cookies[cookie.key] = cookie.value
         token_data["session_cookies"] = merged_cookies
         return token_data
@@ -1591,18 +1681,7 @@ class WeheatClient:
                 },
                 timeout=req_timeout,
             ) as response:
-                if response.status in (400, 401, 403):
-                    err_text = await response.text()
-                    raise WeheatAuthError(
-                        f"Portal token refresh rejected (HTTP {response.status}): {err_text[:200]}",
-                        status_code=response.status,
-                    )
-                if response.status >= 400:
-                    err_text = await response.text()
-                    raise WeheatApiError(
-                        f"Portal token refresh failed (HTTP {response.status}): {err_text[:200]}",
-                        status_code=response.status,
-                    )
+                await self._raise_for_portal_response(response, "Portal token refresh")
                 token_data = await response.json(content_type=None)
         except (WeheatAuthError, WeheatApiError, WeheatTimeoutError):
             raise

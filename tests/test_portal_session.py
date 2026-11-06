@@ -807,3 +807,287 @@ async def test_setup_entry_topology_401_recovers_via_force_refresh(
     pkce_mock.assert_called_once_with("user@weheat.nl", "secret_password")
     assert hp_without_cb.control_board_id == "cb-recovered-001"
     assert hp_without_cb.installation_id == "inst-123"
+
+
+@pytest.mark.asyncio
+async def test_async_refresh_portal_session_success_and_unrotated_rejection() -> None:
+    """Verify async_refresh_portal_session exchanges cookies for a fresh JWT and rejects un-rotated or expired tokens."""
+    import base64
+    import json
+
+    from custom_components.weheat.client import WeheatAuthError, WeheatClient
+
+    exp_ts = int(time.time()) + 300
+    payload_b64 = (
+        base64.urlsafe_b64encode(json.dumps({"exp": exp_ts}).encode())
+        .decode()
+        .rstrip("=")
+    )
+    valid_jwt = f"eyJhbGciOiJSUzI1NiJ9.{payload_b64}.sig"
+
+    class FakeResp:
+        def __init__(self, status: int, json_data: dict | None = None) -> None:
+            self.status = status
+            self._json_data = json_data
+
+        async def json(self, content_type: str | None = None) -> dict:
+            if self._json_data is None:
+                raise ValueError("No JSON")
+            return self._json_data
+
+        async def text(self) -> str:
+            return json.dumps(self._json_data or {})
+
+        async def __aenter__(self) -> FakeResp:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+    class FakeCookie:
+        def __init__(self, key: str, value: str) -> None:
+            self.key = key
+            self.value = value
+
+    class FakeSession:
+        def __init__(self, resp_data: dict) -> None:
+            self._resp_data = resp_data
+            self.cookie_jar = [
+                FakeCookie("__Secure-next-auth.session-token", "rotated_cookie_val")
+            ]
+
+        def get(self, url: str, **kwargs: object) -> FakeResp:
+            return FakeResp(200, self._resp_data)
+
+        async def __aenter__(self) -> FakeSession:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+    client = WeheatClient(session=MagicMock())
+
+    # 1. Valid rotated token
+    fake_session_ok = FakeSession(
+        {"accessToken": valid_jwt, "user": {"email": "u@weheat.nl"}}
+    )
+    with patch("aiohttp.ClientSession", return_value=fake_session_ok):
+        refreshed = await client.async_refresh_portal_session(
+            {"__Secure-next-auth.session-token": "initial_cookie_val"},
+            previous_access_token="old_expired_jwt",
+        )
+    assert refreshed[CONF_ACCESS_TOKEN] == valid_jwt
+    assert (
+        refreshed["session_cookies"]["__Secure-next-auth.session-token"]
+        == "rotated_cookie_val"
+    )
+    assert refreshed["expires_at"] == float(exp_ts)
+
+    # 2. Un-rotated identical token when previous_access_token matches -> raises WeheatAuthError
+    with (
+        patch("aiohttp.ClientSession", return_value=fake_session_ok),
+        pytest.raises(WeheatAuthError, match="did not return a refreshed access token"),
+    ):
+        await client.async_refresh_portal_session(
+            {"__Secure-next-auth.session-token": "initial_cookie_val"},
+            previous_access_token=valid_jwt,
+        )
+
+
+@pytest.mark.asyncio
+async def test_nextauth_portal_pkce_login_error_branches_and_direct_fallback() -> None:
+    """Verify async_login_portal_pkce error handling for invalid credentials, OAuthCallback error, and direct PKCE client_id."""
+    from custom_components.weheat.client import WeheatAuthError, WeheatClient
+
+    auth_url = (
+        "https://auth.weheat.nl/realms/Weheat/protocol/openid-connect/auth"
+        "?client_id=weheat-portal&scope=openid&response_type=code"
+    )
+    login_action = (
+        "https://auth.weheat.nl/realms/Weheat/login-actions/authenticate?code=1"
+    )
+
+    class FakeResp:
+        def __init__(
+            self,
+            status: int,
+            *,
+            json_data: dict | None = None,
+            text_data: str = "",
+            headers: dict[str, str] | None = None,
+        ) -> None:
+            self.status = status
+            self._json_data = json_data
+            self._text_data = text_data
+            self.headers = headers or {}
+
+        async def json(self, content_type: str | None = None) -> dict:
+            if self._json_data is None:
+                raise ValueError("No JSON")
+            return self._json_data
+
+        async def text(self) -> str:
+            return self._text_data
+
+        async def __aenter__(self) -> FakeResp:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+    class FakeInvalidCredsSession:
+        cookie_jar: list = []
+
+        def get(self, url: str, **kwargs: object) -> FakeResp:
+            if url.endswith("/api/auth/csrf"):
+                return FakeResp(200, json_data={"csrfToken": "csrf_1"})
+            if "protocol/openid-connect/auth" in url:
+                return FakeResp(200, text_data=f'"loginAction": "{login_action}"')
+            raise AssertionError(f"Unexpected GET {url}")
+
+        def post(self, url: str, **kwargs: object) -> FakeResp:
+            if url.endswith("/api/auth/signin/keycloak"):
+                return FakeResp(302, headers={"Location": auth_url})
+            if url == login_action:
+                # Keycloak returns 200 HTML page when username/password are wrong
+                return FakeResp(
+                    200, text_data="<html>Invalid username or password</html>"
+                )
+            raise AssertionError(f"Unexpected POST {url}")
+
+        async def __aenter__(self) -> FakeInvalidCredsSession:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            pass
+
+    client = WeheatClient(session=MagicMock())
+    with (
+        patch("aiohttp.ClientSession", return_value=FakeInvalidCredsSession()),
+        pytest.raises(WeheatAuthError, match="Invalid Weheat portal email or password"),
+    ):
+        await client.async_login_portal_pkce("user@weheat.nl", "wrong_pass")
+
+
+@pytest.mark.asyncio
+async def test_settings_coordinator_401_topology_recovery_and_no_reauth_failure(
+    mock_heat_pump_info: HeatPumpInfo,
+    mock_client: MagicMock,
+    mock_fallback_session: MagicMock,
+) -> None:
+    """Verify WeheatSettingsUpdateCoordinator 401 recovery during fallback topology lookup and ConfigEntryAuthFailed when un-reauthenticatable."""
+    from homeassistant.exceptions import ConfigEntryAuthFailed
+
+    from custom_components.weheat.client import WeheatAuthError
+    from custom_components.weheat.coordinator import WeheatSettingsUpdateCoordinator
+    from custom_components.weheat.models import ControlBoardSettings
+
+    hass = HomeAssistant()
+    mock_heat_pump_info.installation_id = None
+
+    # 1. 401 during topology discovery when installation_id is None recovers via force refresh
+    entry_with_creds = ConfigEntry(
+        entry_id="test_entry",
+        options={
+            CONF_PORTAL_USERNAME: "user@weheat.nl",
+            CONF_PORTAL_PASSWORD: "secret_password",
+            CONF_PORTAL_TOKEN: {
+                CONF_ACCESS_TOKEN: "stale_jwt",
+                "expires_at": time.time() + 200.0,
+            },
+        },
+    )
+    portal_session = WeheatPortalSession(
+        hass, entry_with_creds, mock_client, mock_fallback_session
+    )
+    mock_client.async_login_portal_pkce.return_value = {
+        CONF_ACCESS_TOKEN: "fresh_jwt",
+        "expires_at": time.time() + 300.0,
+    }
+    mock_client.async_get_installation_topology = AsyncMock(
+        side_effect=[
+            WeheatAuthError("Unauthorized", status_code=401),
+            [
+                {
+                    "id": "inst-recovered",
+                    "heatPumpId": mock_heat_pump_info.heatpump_id,
+                    "controlBoardId": "cb-recovered",
+                }
+            ],
+        ]
+    )
+    mock_client.async_get_installation_settings = AsyncMock(
+        return_value=ControlBoardSettings(performance_mode_preset=1)
+    )
+
+    coord = WeheatSettingsUpdateCoordinator(
+        hass, entry_with_creds, portal_session, mock_heat_pump_info, client=mock_client
+    )
+    settings = await coord._async_update_data()
+    assert settings.performance_mode_preset == 1
+    assert mock_heat_pump_info.installation_id == "inst-recovered"
+
+    # 2. 401 when session has no stored credentials/cookies raises ConfigEntryAuthFailed
+    entry_no_creds = ConfigEntry(
+        entry_id="test_entry_no_creds",
+        options={
+            CONF_PORTAL_TOKEN: {
+                CONF_ACCESS_TOKEN: "manual_jwt_only",
+                "expires_at": time.time() + 200.0,
+            },
+        },
+    )
+    portal_session_no_creds = WeheatPortalSession(
+        hass, entry_no_creds, mock_client, mock_fallback_session
+    )
+    mock_client.async_get_installation_settings = AsyncMock(
+        side_effect=WeheatAuthError("Unauthorized", status_code=401)
+    )
+    coord_no_creds = WeheatSettingsUpdateCoordinator(
+        hass,
+        entry_no_creds,
+        portal_session_no_creds,
+        mock_heat_pump_info,
+        client=mock_client,
+    )
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coord_no_creds._async_update_data()
+
+
+@pytest.mark.asyncio
+async def test_security_path_sanitization_and_origin_state_validation() -> None:
+    """Verify path segment sanitization prevents traversal/injection and PKCE login rejects untrusted origins or state mismatch."""
+    from custom_components.weheat.client import WeheatAuthError, WeheatClient
+
+    client = WeheatClient(session=MagicMock())
+
+    # 1. Path traversal / query injection rejected across client methods
+    for unsafe_id in (
+        "../users/me",
+        "id/../../admin",
+        "id?admin=1",
+        "id#frag",
+        "id with space",
+    ):
+        with pytest.raises(ValueError, match="unsafe path characters"):
+            await client.async_get_heat_pump_details(unsafe_id)
+        with pytest.raises(ValueError, match="unsafe path characters"):
+            await client.async_get_installation_settings(unsafe_id)
+        with pytest.raises(ValueError, match="unsafe path characters"):
+            await client.async_patch_control_board_settings(
+                unsafe_id, settings={"PerformanceModePreset": 0}
+            )
+
+    # 2. Untrusted origin in loginAction is blocked before credentials are sent
+    with pytest.raises(WeheatAuthError, match="Untrusted URL origin"):
+        WeheatClient._validate_trusted_url(
+            "https://attacker.example.com/login",
+            "https://auth.weheat.nl",
+            "Keycloak login action",
+        )
+    with pytest.raises(WeheatAuthError, match="Untrusted URL origin"):
+        WeheatClient._validate_trusted_url(
+            "http://auth.weheat.nl/login",
+            "https://auth.weheat.nl",
+            "Keycloak login action",
+        )

@@ -543,9 +543,7 @@ class WeheatHeatPumpSensor(WeheatEntity, SensorEntity):
         entity_description: WeHeatSensorEntityDescription,
     ) -> None:
         """Initialize the Weheat sensor."""
-        super().__init__(heat_pump_info, coordinator)
-        self.entity_description = entity_description
-        self._attr_unique_id = f"{heat_pump_info.heatpump_id}_{entity_description.key}"
+        super().__init__(heat_pump_info, coordinator, entity_description)
 
     @property
     def native_value(self) -> StateType | datetime:

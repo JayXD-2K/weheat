@@ -27,7 +27,7 @@ from .client import (
 )
 from .const import DAYS_OF_WEEK
 from .coordinator import WeheatConfigEntry
-from .entity import WeheatEntity
+from .entity import WeheatControlEntity
 from .models import ControlBoardSettings, DailySilentSchedule, HeatPumpInfo
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class WeheatTimeEntity(WeheatEntity[DataUpdateCoordinator[Any]], TimeEntity):
+class WeheatTimeEntity(WeheatControlEntity[DataUpdateCoordinator[Any]], TimeEntity):
     """Representation of a Weheat Quiet Hours Schedule Time entity.
 
     Exposes the scheduled quiet time start or stop hour:minute for a given day
@@ -116,10 +116,14 @@ class WeheatTimeEntity(WeheatEntity[DataUpdateCoordinator[Any]], TimeEntity):
             client: Optional WeheatClient instance (defaults to coordinator's client).
             session: Optional session providing portal auth and token refresh.
         """
-        super().__init__(heat_pump_info, coordinator, entity_description)
+        super().__init__(
+            heat_pump_info,
+            coordinator,
+            entity_description,
+            client=client or getattr(coordinator, "client", None),
+            session=session or getattr(coordinator, "session", None),
+        )
         self.entity_description = entity_description
-        self._client = client or getattr(coordinator, "client", None)
-        self._session = session or getattr(coordinator, "session", None)
 
     @property
     def icon(self) -> str | None:
@@ -129,30 +133,15 @@ class WeheatTimeEntity(WeheatEntity[DataUpdateCoordinator[Any]], TimeEntity):
     @property
     def native_value(self) -> time | None:
         """Return the current scheduled time value from coordinator data."""
-        if not self.coordinator.data:
-            return None
-
-        # Primary path: coordinator.data is a ControlBoardSettings dataclass
-        if hasattr(self.coordinator.data, "schedules"):
-            schedules: dict[str, DailySilentSchedule] = self.coordinator.data.schedules
-            schedule: DailySilentSchedule | None = schedules.get(
+        settings = self._get_settings()
+        if settings is not None:
+            schedule: DailySilentSchedule | None = settings.schedules.get(
                 self.entity_description.day
             )
             if schedule is not None:
                 if self.entity_description.is_start:
                     return time(schedule.start_hour, schedule.start_minute)
                 return time(schedule.stop_hour, schedule.stop_minute)
-
-        # Fallback path: coordinator.data is a raw dict (mock fixture or fallback)
-        if isinstance(self.coordinator.data, dict):
-            settings_dict = self.coordinator.data.get("settings", self.coordinator.data)
-            action = "Start" if self.entity_description.is_start else "Stop"
-            hour_key = f"SilentHours{self.entity_description.day}{action}"
-            minute_key = f"SilentMinutes{self.entity_description.day}{action}"
-            default_hour = 19 if self.entity_description.is_start else 7
-            hour = int(settings_dict.get(hour_key, default_hour))
-            minute = int(settings_dict.get(minute_key, 0))
-            return time(hour, minute)
 
         return None
 

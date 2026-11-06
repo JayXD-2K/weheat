@@ -409,6 +409,47 @@ def _parse_days(days_input: Any) -> list[str]:
     return list(dict.fromkeys(normalized_days))  # Preserve order, deduplicate
 
 
+async def _async_refresh_coordinators(
+    data: WeheatData, *, include_settings: bool = True
+) -> None:
+    """Refresh telemetry and optional settings coordinators after a service mutation."""
+    await data.data_coordinator.async_request_refresh()
+    if (
+        include_settings
+        and hasattr(data, "settings_coordinator")
+        and data.settings_coordinator
+    ):
+        await data.settings_coordinator.async_request_refresh()
+
+
+def _raise_service_error(
+    err: Exception,
+    *,
+    fail_verb: str,
+    comm_verb: str,
+    heatpump_id: str,
+) -> None:
+    """Convert client/network exceptions into a descriptive HomeAssistantError."""
+    if isinstance(err, HomeAssistantError):
+        raise err
+    if isinstance(err, WeheatError):
+        raise HomeAssistantError(
+            f"Failed to {fail_verb} for heat pump {heatpump_id}: {err}"
+        ) from err
+    if isinstance(err, ClientResponseError):
+        raise HomeAssistantError(
+            f"Communication error {comm_verb} for heat pump {heatpump_id}: "
+            f"HTTP {err.status} ({err.message})"
+        ) from err
+    if isinstance(err, (ClientError, TimeoutError)):
+        raise HomeAssistantError(
+            f"Communication error {comm_verb} for heat pump {heatpump_id}: {err}"
+        ) from err
+    raise HomeAssistantError(
+        f"Unexpected error {comm_verb} for heat pump {heatpump_id}: {err}"
+    ) from err
+
+
 async def async_handle_set_quiet_mode(hass: HomeAssistant, call: ServiceCall) -> None:
     """Handle weheat.set_quiet_mode service call."""
     raw_mode = call.data.get("mode")
@@ -496,28 +537,14 @@ async def async_handle_set_quiet_mode(hass: HomeAssistant, call: ServiceCall) ->
                 token=token,
             )
             # Refresh coordinator telemetry
-            await data.data_coordinator.async_request_refresh()
-            if hasattr(data, "settings_coordinator") and data.settings_coordinator:
-                await data.settings_coordinator.async_request_refresh()
-        except HomeAssistantError:
-            raise
-        except WeheatError as err:
-            raise HomeAssistantError(
-                f"Failed to set quiet mode for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
-        except ClientResponseError as err:
-            raise HomeAssistantError(
-                f"Communication error setting quiet mode for heat pump {data.heat_pump_info.heatpump_id}: "
-                f"HTTP {err.status} ({err.message})"
-            ) from err
-        except (ClientError, TimeoutError) as err:
-            raise HomeAssistantError(
-                f"Communication error setting quiet mode for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            await _async_refresh_coordinators(data)
         except Exception as err:
-            raise HomeAssistantError(
-                f"Unexpected error setting quiet mode for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            _raise_service_error(
+                err,
+                fail_verb="set quiet mode",
+                comm_verb="setting quiet mode",
+                heatpump_id=data.heat_pump_info.heatpump_id,
+            )
 
 
 async def async_handle_set_silent_schedule(
@@ -599,42 +626,9 @@ async def async_handle_set_silent_schedule(
                     or not hasattr(client, "async_set_silent_hours_schedule")
                 )
             ):
-                sched_fields = {}
-                for day in DAYS_OF_WEEK:
-                    sched = (
-                        settings.schedules.get(day)
-                        if hasattr(settings, "schedules")
-                        and isinstance(settings.schedules, dict)
-                        else None
-                    )
-                    sched_fields[f"silent_hours_{day.lower()}_start"] = (
-                        schedule_dict.get(
-                            f"SilentHours{day}Start",
-                            sched.start_hour if sched else 19,
-                        )
-                    )
-                    sched_fields[f"silent_minutes_{day.lower()}_start"] = (
-                        schedule_dict.get(
-                            f"SilentMinutes{day}Start",
-                            sched.start_minute if sched else 0,
-                        )
-                    )
-                    sched_fields[f"silent_hours_{day.lower()}_stop"] = (
-                        schedule_dict.get(
-                            f"SilentHours{day}Stop",
-                            sched.stop_hour if sched else 7,
-                        )
-                    )
-                    sched_fields[f"silent_minutes_{day.lower()}_stop"] = (
-                        schedule_dict.get(
-                            f"SilentMinutes{day}Stop",
-                            sched.stop_minute if sched else 0,
-                        )
-                    )
                 payload = settings.build_bundled_silent_schedule_payload(
                     silent_hours_preset=preset,
                     day_updates=schedule_dict,
-                    **sched_fields,
                 )
                 req_id = await client.async_patch_control_board_settings(
                     control_board_id=cb_id,
@@ -653,28 +647,14 @@ async def async_handle_set_silent_schedule(
                 request_id=req_id,
                 token=token,
             )
-            await data.data_coordinator.async_request_refresh()
-            if hasattr(data, "settings_coordinator") and data.settings_coordinator:
-                await data.settings_coordinator.async_request_refresh()
-        except HomeAssistantError:
-            raise
-        except WeheatError as err:
-            raise HomeAssistantError(
-                f"Failed to set silent schedule for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
-        except ClientResponseError as err:
-            raise HomeAssistantError(
-                f"Communication error setting silent schedule for heat pump {data.heat_pump_info.heatpump_id}: "
-                f"HTTP {err.status} ({err.message})"
-            ) from err
-        except (ClientError, TimeoutError) as err:
-            raise HomeAssistantError(
-                f"Communication error setting silent schedule for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            await _async_refresh_coordinators(data)
         except Exception as err:
-            raise HomeAssistantError(
-                f"Unexpected error setting silent schedule for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            _raise_service_error(
+                err,
+                fail_verb="set silent schedule",
+                comm_verb="setting silent schedule",
+                heatpump_id=data.heat_pump_info.heatpump_id,
+            )
 
 
 async def async_handle_trigger_legionella(
@@ -703,26 +683,14 @@ async def async_handle_trigger_legionella(
                 raise HomeAssistantError(
                     f"Legionella prevention trigger was not acknowledged by heat pump {data.heat_pump_info.heatpump_id}"
                 )
-            await data.data_coordinator.async_request_refresh()
-        except HomeAssistantError:
-            raise
-        except WeheatError as err:
-            raise HomeAssistantError(
-                f"Failed to trigger Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
-        except ClientResponseError as err:
-            raise HomeAssistantError(
-                f"Communication error triggering Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: "
-                f"HTTP {err.status} ({err.message})"
-            ) from err
-        except (ClientError, TimeoutError) as err:
-            raise HomeAssistantError(
-                f"Communication error triggering Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            await _async_refresh_coordinators(data, include_settings=False)
         except Exception as err:
-            raise HomeAssistantError(
-                f"Unexpected error triggering Legionella prevention for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            _raise_service_error(
+                err,
+                fail_verb="trigger Legionella prevention",
+                comm_verb="triggering Legionella prevention",
+                heatpump_id=data.heat_pump_info.heatpump_id,
+            )
 
 
 async def async_handle_set_cooling(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -806,28 +774,14 @@ async def async_handle_set_cooling(hass: HomeAssistant, call: ServiceCall) -> No
                 request_id=req_id,
                 token=token,
             )
-            await data.data_coordinator.async_request_refresh()
-            if hasattr(data, "settings_coordinator") and data.settings_coordinator:
-                await data.settings_coordinator.async_request_refresh()
-        except HomeAssistantError:
-            raise
-        except WeheatError as err:
-            raise HomeAssistantError(
-                f"Failed to configure cooling for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
-        except ClientResponseError as err:
-            raise HomeAssistantError(
-                f"Communication error configuring cooling for heat pump {data.heat_pump_info.heatpump_id}: "
-                f"HTTP {err.status} ({err.message})"
-            ) from err
-        except (ClientError, TimeoutError) as err:
-            raise HomeAssistantError(
-                f"Communication error configuring cooling for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            await _async_refresh_coordinators(data)
         except Exception as err:
-            raise HomeAssistantError(
-                f"Unexpected error configuring cooling for heat pump {data.heat_pump_info.heatpump_id}: {err}"
-            ) from err
+            _raise_service_error(
+                err,
+                fail_verb="configure cooling",
+                comm_verb="configuring cooling",
+                heatpump_id=data.heat_pump_info.heatpump_id,
+            )
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:

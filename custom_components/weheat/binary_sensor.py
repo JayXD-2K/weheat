@@ -137,9 +137,7 @@ class WeheatHeatPumpBinarySensor(WeheatEntity, BinarySensorEntity):
         entity_description: WeHeatBinarySensorEntityDescription,
     ) -> None:
         """Initialize the Weheat binary sensor."""
-        super().__init__(heat_pump_info, coordinator)
-        self.entity_description = entity_description
-        self._attr_unique_id = f"{heat_pump_info.heatpump_id}_{entity_description.key}"
+        super().__init__(heat_pump_info, coordinator, entity_description)
 
     @property
     def is_on(self) -> bool | None:

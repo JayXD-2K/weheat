@@ -47,6 +47,21 @@ if TYPE_CHECKING:
 type WeheatConfigEntry = ConfigEntry[list[WeheatData]]
 
 
+async def _async_ensure_session_token(session: Any) -> str | None:
+    """Validate the coordinator's OAuth/portal session and return the access token."""
+    if session is None:
+        return None
+    try:
+        await session.async_ensure_token_valid()
+        return session.token.get(CONF_ACCESS_TOKEN)
+    except ClientResponseError as err:
+        if err.status in (400, 401, 403):
+            raise ConfigEntryAuthFailed("OAuth token invalid or expired") from err
+        raise UpdateFailed(f"Error refreshing OAuth token: {err}") from err
+    except Exception as err:
+        raise UpdateFailed(f"Failed to ensure valid OAuth token: {err}") from err
+
+
 class WeheatDataUpdateCoordinator(DataUpdateCoordinator[HeatPumpLog]):
     """Data update coordinator for high-frequency operational telemetry logs."""
 
@@ -94,21 +109,7 @@ class WeheatDataUpdateCoordinator(DataUpdateCoordinator[HeatPumpLog]):
             ConfigEntryAuthFailed: If token renewal fails or server rejects auth.
             UpdateFailed: If API or network connection errors occur.
         """
-        token: str | None = None
-        if self.session is not None:
-            try:
-                await self.session.async_ensure_token_valid()
-                token = self.session.token.get(CONF_ACCESS_TOKEN)
-            except ClientResponseError as err:
-                if err.status in (400, 401, 403):
-                    raise ConfigEntryAuthFailed(
-                        "OAuth token invalid or expired"
-                    ) from err
-                raise UpdateFailed(f"Error refreshing OAuth token: {err}") from err
-            except Exception as err:
-                raise UpdateFailed(
-                    f"Failed to ensure valid OAuth token: {err}"
-                ) from err
+        token = await _async_ensure_session_token(self.session)
 
         if not self.heat_pump_info:
             raise UpdateFailed("Heat pump information is missing from coordinator")
@@ -170,21 +171,7 @@ class WeheatEnergyUpdateCoordinator(DataUpdateCoordinator[HeatPumpEnergy]):
             ConfigEntryAuthFailed: If token renewal fails or server rejects auth.
             UpdateFailed: If API or network connection errors occur.
         """
-        token: str | None = None
-        if self.session is not None:
-            try:
-                await self.session.async_ensure_token_valid()
-                token = self.session.token.get(CONF_ACCESS_TOKEN)
-            except ClientResponseError as err:
-                if err.status in (400, 401, 403):
-                    raise ConfigEntryAuthFailed(
-                        "OAuth token invalid or expired"
-                    ) from err
-                raise UpdateFailed(f"Error refreshing OAuth token: {err}") from err
-            except Exception as err:
-                raise UpdateFailed(
-                    f"Failed to ensure valid OAuth token: {err}"
-                ) from err
+        token = await _async_ensure_session_token(self.session)
 
         if not self.heat_pump_info:
             raise UpdateFailed("Heat pump information is missing from coordinator")
@@ -246,21 +233,7 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
             ConfigEntryAuthFailed: If token renewal fails or server rejects auth.
             UpdateFailed: If API or network connection errors occur.
         """
-        token: str | None = None
-        if self.session is not None:
-            try:
-                await self.session.async_ensure_token_valid()
-                token = self.session.token.get(CONF_ACCESS_TOKEN)
-            except ClientResponseError as err:
-                if err.status in (400, 401, 403):
-                    raise ConfigEntryAuthFailed(
-                        "OAuth token invalid or expired"
-                    ) from err
-                raise UpdateFailed(f"Error refreshing OAuth token: {err}") from err
-            except Exception as err:
-                raise UpdateFailed(
-                    f"Failed to ensure valid OAuth token: {err}"
-                ) from err
+        token = await _async_ensure_session_token(self.session)
 
         if not self.heat_pump_info:
             raise UpdateFailed("Heat pump information is missing from coordinator")
@@ -286,21 +259,10 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
                         )
                     else:
                         raise
-                for item in topology:
-                    hp_nested = item.get("heatPump")
-                    hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
-                    hp_id = (
-                        item.get("heatPumpId") or hp_dict.get("id") or item.get("id")
-                    )
-                    if hp_id == self.heat_pump_info.heatpump_id:
-                        installation_id = item.get("installationId") or item.get("id")
-                        self.heat_pump_info.installation_id = installation_id
-                        cb_id = item.get("controlBoardId") or hp_dict.get(
-                            "controlBoardId"
-                        )
-                        if cb_id and not self.heat_pump_info.control_board_id:
-                            self.heat_pump_info.control_board_id = str(cb_id)
-                        break
+                WeheatClient.apply_topology_to_heat_pumps(
+                    topology, [self.heat_pump_info], allow_single_fallback=False
+                )
+                installation_id = self.heat_pump_info.installation_id
             except (
                 WeheatError,
                 ClientError,
@@ -378,7 +340,7 @@ class WeheatPortalSession:
             try:
                 return WeheatClient.parse_portal_session_input(raw_tok)
             except Exception:
-                pass
+                LOGGER.debug("Failed to parse stored portal token string")
         return None
 
     def _get_portal_credentials(self) -> tuple[str | None, str | None]:

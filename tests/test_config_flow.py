@@ -481,3 +481,33 @@ async def test_options_flow_portal_cookie_input_success() -> None:
         {"__Secure-next-auth.session-token": "cookie_tok_abc"}
     )
     assert res["data"]["portal_token"] == mock_portal_token
+
+
+@pytest.mark.asyncio
+async def test_options_flow_clear_credentials_and_no_arg_init() -> None:
+    """Verify WeheatOptionsFlowHandler clears stored portal credentials when submitted empty and supports no-arg init."""
+    from custom_components.weheat.config_flow import WeheatOptionsFlowHandler
+
+    entry = ConfigEntry(
+        entry_id="opt_entry_clear",
+        options={
+            "portal_username": "user@weheat.nl",
+            "portal_password": "secret",
+            "portal_token": {"access_token": "old_jwt"},
+        },
+    )
+    opt_flow = WeheatOptionsFlowHandler()
+    opt_flow.config_entry = entry  # type: ignore[attr-defined]
+    assert opt_flow._entry is entry
+
+    res = await opt_flow.async_step_init(
+        {
+            "portal_username": "",
+            "portal_password": "",
+            "portal_session_token": "",
+        }
+    )
+    assert res["type"] == "create_entry"
+    assert "portal_username" not in res["data"]
+    assert "portal_password" not in res["data"]
+    assert "portal_token" not in res["data"]

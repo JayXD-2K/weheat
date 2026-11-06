@@ -124,23 +124,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> bo
                     )
                 else:
                     raise
-            for item in topology_items:
-                hp_nested = item.get("heatPump")
-                hp_dict = hp_nested if isinstance(hp_nested, dict) else {}
-                cb_id = item.get("controlBoardId") or hp_dict.get("controlBoardId")
-                hp_id = item.get("heatPumpId") or hp_dict.get("id") or item.get("id")
-                inst_id = item.get("installationId") or (
-                    item.get("id") if hp_dict or item.get("id") != hp_id else None
-                )
-                for pump_info in discovered_heat_pumps:
-                    if str(pump_info.heatpump_id) == str(hp_id) or (
-                        len(discovered_heat_pumps) == 1
-                        and not pump_info.control_board_id
-                    ):
-                        if cb_id and not pump_info.control_board_id:
-                            pump_info.control_board_id = str(cb_id)
-                        if inst_id and not pump_info.installation_id:
-                            pump_info.installation_id = str(inst_id)
+            WeheatClient.apply_topology_to_heat_pumps(
+                topology_items, discovered_heat_pumps, allow_single_fallback=True
+            )
         except Exception as err:
             _LOGGER.debug("Safe topology discovery skipped during setup: %s", err)
 

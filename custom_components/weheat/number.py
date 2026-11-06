@@ -17,7 +17,7 @@ from homeassistant.components.number import (
     NumberEntityDescription,
     NumberMode,
 )
-from homeassistant.const import CONF_ACCESS_TOKEN, EntityCategory, UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -29,7 +29,7 @@ from .const import (
     DEFAULT_COOLING_CURVE_Y,
 )
 from .coordinator import WeheatConfigEntry
-from .entity import WeheatEntity
+from .entity import WeheatControlEntity
 from .models import ControlBoardSettings, HeatPumpInfo
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class WeheatCoolingCurveNumber(WeheatEntity, NumberEntity):
+class WeheatCoolingCurveNumber(WeheatControlEntity, NumberEntity):
     """Number entity for a point on the 2-point Weheat Cooling Curve."""
 
     entity_description: WeheatCoolingCurveNumberDescription
@@ -122,41 +122,11 @@ class WeheatCoolingCurveNumber(WeheatEntity, NumberEntity):
         session: Any | None = None,
     ) -> None:
         """Initialize the cooling curve number entity."""
-        super().__init__(heat_pump_info, coordinator, entity_description)
-        self._client = client
-        self._session = session
+        super().__init__(
+            heat_pump_info, coordinator, entity_description, client, session
+        )
         self._attr_icon = "mdi:snowflake-thermometer"
         self._attr_mode = NumberMode.BOX
-
-    async def _async_get_token(self) -> str | None:
-        """Retrieve valid OAuth2 Bearer access token."""
-        if self._session is not None:
-            if hasattr(self._session, "check_portal_auth"):
-                self._session.check_portal_auth()
-            await self._session.async_ensure_token_valid()
-            return self._session.token.get(CONF_ACCESS_TOKEN)
-        return None
-
-    async def _async_get_control_board_id(self, token: str | None = None) -> str:
-        """Resolve target control board ID."""
-        if self.heat_pump_info.control_board_id:
-            return self.heat_pump_info.control_board_id
-        if self._client is not None:
-            return await self._client.async_get_control_board_id(
-                self.heat_pump_info.heatpump_id, token=token
-            )
-        raise HomeAssistantError("No client available to resolve control board ID")
-
-    def _get_settings(self) -> ControlBoardSettings | None:
-        """Return typed ControlBoardSettings from coordinator data."""
-        data = self.coordinator.data
-        if data is None:
-            return None
-        if isinstance(data, ControlBoardSettings):
-            return data
-        if isinstance(data, dict):
-            return ControlBoardSettings.from_api_dict(data)
-        return None
 
     @property
     def native_min_value(self) -> float:

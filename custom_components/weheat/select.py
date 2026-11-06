@@ -30,14 +30,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
-from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .client import WeheatClient, WeheatError
 from .coordinator import WeheatConfigEntry
-from .entity import WeheatEntity
+from .entity import WeheatControlEntity
 from .models import (
     ControlBoardSettings,
     HeatPumpInfo,
@@ -192,7 +191,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class WeheatPerformanceModeSelect(WeheatEntity, SelectEntity):
+class WeheatPerformanceModeSelect(WeheatControlEntity, SelectEntity):
     """Select entity for heat pump Performance Mode (Quiet Level: 0..4)."""
 
     entity_description: WeheatSelectEntityDescription
@@ -206,30 +205,11 @@ class WeheatPerformanceModeSelect(WeheatEntity, SelectEntity):
         session: Any | None = None,
     ) -> None:
         """Initialize the performance mode select entity."""
-        super().__init__(heat_pump_info, coordinator, entity_description)
-        self._client = client
-        self._session = session
+        super().__init__(
+            heat_pump_info, coordinator, entity_description, client, session
+        )
         self._attr_options = list(PERFORMANCE_MODE_OPTIONS)
         self._attr_icon = "mdi:volume-low"
-
-    async def _async_get_token(self) -> str | None:
-        """Retrieve valid OAuth2 Bearer access token."""
-        if self._session is not None:
-            if hasattr(self._session, "check_portal_auth"):
-                self._session.check_portal_auth()
-            await self._session.async_ensure_token_valid()
-            return self._session.token.get(CONF_ACCESS_TOKEN)
-        return None
-
-    async def _async_get_control_board_id(self, token: str | None = None) -> str:
-        """Resolve target control board ID."""
-        if self.heat_pump_info.control_board_id:
-            return self.heat_pump_info.control_board_id
-        if self._client is not None:
-            return await self._client.async_get_control_board_id(
-                self.heat_pump_info.heatpump_id, token=token
-            )
-        raise HomeAssistantError("No client available to resolve control board ID")
 
     @property
     def current_option(self) -> str | None:
@@ -351,7 +331,7 @@ class WeheatPerformanceModeSelect(WeheatEntity, SelectEntity):
             ) from err
 
 
-class WeheatSilentHoursPresetSelect(WeheatEntity, SelectEntity):
+class WeheatSilentHoursPresetSelect(WeheatControlEntity, SelectEntity):
     """Select entity for Silent Hours Scheduled Preset (0=Off, 1..4=Silent 1..4)."""
 
     entity_description: WeheatSelectEntityDescription
@@ -365,30 +345,11 @@ class WeheatSilentHoursPresetSelect(WeheatEntity, SelectEntity):
         session: Any | None = None,
     ) -> None:
         """Initialize the silent hours preset select entity."""
-        super().__init__(heat_pump_info, coordinator, entity_description)
-        self._client = client
-        self._session = session
+        super().__init__(
+            heat_pump_info, coordinator, entity_description, client, session
+        )
         self._attr_options = list(SILENT_HOURS_OPTIONS)
         self._attr_icon = "mdi:clock-outline"
-
-    async def _async_get_token(self) -> str | None:
-        """Retrieve valid OAuth2 Bearer access token."""
-        if self._session is not None:
-            if hasattr(self._session, "check_portal_auth"):
-                self._session.check_portal_auth()
-            await self._session.async_ensure_token_valid()
-            return self._session.token.get(CONF_ACCESS_TOKEN)
-        return None
-
-    async def _async_get_control_board_id(self, token: str | None = None) -> str:
-        """Resolve target control board ID."""
-        if self.heat_pump_info.control_board_id:
-            return self.heat_pump_info.control_board_id
-        if self._client is not None:
-            return await self._client.async_get_control_board_id(
-                self.heat_pump_info.heatpump_id, token=token
-            )
-        raise HomeAssistantError("No client available to resolve control board ID")
 
     @property
     def current_option(self) -> str | None:
