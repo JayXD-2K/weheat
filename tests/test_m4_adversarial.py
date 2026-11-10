@@ -458,12 +458,12 @@ async def test_service_call_oauth_token_refresh_client_error_must_raise_home_ass
 
 @pytest.mark.asyncio
 async def test_settings_coordinator_interval(mock_hp_info_1: HeatPumpInfo) -> None:
-    """Verify WeheatSettingsUpdateCoordinator polling interval is 300 seconds."""
+    """Verify WeheatSettingsUpdateCoordinator polling interval is 60 seconds."""
     hass = HomeAssistant()
     entry = ConfigEntry()
     coord = WeheatSettingsUpdateCoordinator(hass, entry, None, mock_hp_info_1)
     assert coord.update_interval == datetime.timedelta(seconds=SETTINGS_UPDATE_INTERVAL)
-    assert coord.update_interval.total_seconds() == 300
+    assert coord.update_interval.total_seconds() == 60
 
 
 @pytest.mark.asyncio

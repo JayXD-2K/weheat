@@ -22,19 +22,31 @@ from homeassistant.helpers.config_entry_oauth2_flow import (
 
 from .client import WeheatClient, WeheatError
 from .const import (
+    CONF_ENERGY_UPDATE_INTERVAL,
+    CONF_LOG_UPDATE_INTERVAL,
     CONF_PORTAL_PASSWORD,
     CONF_PORTAL_SESSION_TOKEN,
     CONF_PORTAL_TOKEN,
     CONF_PORTAL_USERNAME,
+    CONF_SETTINGS_UPDATE_INTERVAL,
     DEFAULT_API_BASE_URL,
     DEFAULT_CLIENT_ID,
     DEFAULT_CLIENT_SECRET,
     DEFAULT_PORTAL_BASE_URL,
     DOMAIN,
+    ENERGY_UPDATE_INTERVAL,
     ENTRY_TITLE,
+    LOG_UPDATE_INTERVAL,
+    MAX_ENERGY_UPDATE_INTERVAL,
+    MAX_LOG_UPDATE_INTERVAL,
+    MAX_SETTINGS_UPDATE_INTERVAL,
+    MIN_ENERGY_UPDATE_INTERVAL,
+    MIN_LOG_UPDATE_INTERVAL,
+    MIN_SETTINGS_UPDATE_INTERVAL,
     OAUTH2_AUTHORIZE,
     OAUTH2_SCOPES,
     OAUTH2_TOKEN,
+    SETTINGS_UPDATE_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -205,7 +217,27 @@ class WeheatOptionsFlowHandler(OptionsFlow):
         return getattr(self, "config_entry", None)
 
     @staticmethod
-    def _build_schema(current_username: str = "") -> Any:
+    def _clamp_interval(
+        raw_value: Any,
+        default: int,
+        minimum: int,
+        maximum: int,
+    ) -> int:
+        """Coerce and clamp an interval value into [minimum, maximum]."""
+        if raw_value is None or isinstance(raw_value, bool):
+            return default
+        try:
+            return max(minimum, min(maximum, int(raw_value)))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _build_schema(
+        current_username: str = "",
+        current_log_interval: int = LOG_UPDATE_INTERVAL,
+        current_settings_interval: int = SETTINGS_UPDATE_INTERVAL,
+        current_energy_interval: int = ENERGY_UPDATE_INTERVAL,
+    ) -> Any:
         """Build voluptuous schema if voluptuous is available."""
         try:
             import voluptuous as vol
@@ -215,6 +247,33 @@ class WeheatOptionsFlowHandler(OptionsFlow):
                     vol.Optional(CONF_PORTAL_USERNAME, default=current_username): str,
                     vol.Optional(CONF_PORTAL_PASSWORD, default=""): str,
                     vol.Optional(CONF_PORTAL_SESSION_TOKEN, default=""): str,
+                    vol.Optional(
+                        CONF_LOG_UPDATE_INTERVAL, default=current_log_interval
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_LOG_UPDATE_INTERVAL,
+                            max=MAX_LOG_UPDATE_INTERVAL,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_SETTINGS_UPDATE_INTERVAL, default=current_settings_interval
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_SETTINGS_UPDATE_INTERVAL,
+                            max=MAX_SETTINGS_UPDATE_INTERVAL,
+                        ),
+                    ),
+                    vol.Optional(
+                        CONF_ENERGY_UPDATE_INTERVAL, default=current_energy_interval
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(
+                            min=MIN_ENERGY_UPDATE_INTERVAL,
+                            max=MAX_ENERGY_UPDATE_INTERVAL,
+                        ),
+                    ),
                 }
             )
         except ImportError:
@@ -223,15 +282,60 @@ class WeheatOptionsFlowHandler(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage Weheat Portal authentication options."""
+        """Manage Weheat Portal authentication and polling interval options."""
         errors: dict[str, str] = {}
         existing_options = dict(getattr(self._entry, "options", None) or {})
         current_username = str(existing_options.get(CONF_PORTAL_USERNAME, ""))
+        current_log_interval = self._clamp_interval(
+            existing_options.get(CONF_LOG_UPDATE_INTERVAL),
+            LOG_UPDATE_INTERVAL,
+            MIN_LOG_UPDATE_INTERVAL,
+            MAX_LOG_UPDATE_INTERVAL,
+        )
+        current_settings_interval = self._clamp_interval(
+            existing_options.get(CONF_SETTINGS_UPDATE_INTERVAL),
+            SETTINGS_UPDATE_INTERVAL,
+            MIN_SETTINGS_UPDATE_INTERVAL,
+            MAX_SETTINGS_UPDATE_INTERVAL,
+        )
+        current_energy_interval = self._clamp_interval(
+            existing_options.get(CONF_ENERGY_UPDATE_INTERVAL),
+            ENERGY_UPDATE_INTERVAL,
+            MIN_ENERGY_UPDATE_INTERVAL,
+            MAX_ENERGY_UPDATE_INTERVAL,
+        )
 
         if user_input is not None:
             username = str(user_input.get(CONF_PORTAL_USERNAME, "")).strip()
             password = str(user_input.get(CONF_PORTAL_PASSWORD, ""))
             raw_session = str(user_input.get(CONF_PORTAL_SESSION_TOKEN, "")).strip()
+
+            log_interval = self._clamp_interval(
+                user_input.get(CONF_LOG_UPDATE_INTERVAL, current_log_interval),
+                current_log_interval,
+                MIN_LOG_UPDATE_INTERVAL,
+                MAX_LOG_UPDATE_INTERVAL,
+            )
+            settings_interval = self._clamp_interval(
+                user_input.get(
+                    CONF_SETTINGS_UPDATE_INTERVAL, current_settings_interval
+                ),
+                current_settings_interval,
+                MIN_SETTINGS_UPDATE_INTERVAL,
+                MAX_SETTINGS_UPDATE_INTERVAL,
+            )
+            energy_interval = self._clamp_interval(
+                user_input.get(CONF_ENERGY_UPDATE_INTERVAL, current_energy_interval),
+                current_energy_interval,
+                MIN_ENERGY_UPDATE_INTERVAL,
+                MAX_ENERGY_UPDATE_INTERVAL,
+            )
+
+            interval_updates = {
+                CONF_LOG_UPDATE_INTERVAL: log_interval,
+                CONF_SETTINGS_UPDATE_INTERVAL: settings_interval,
+                CONF_ENERGY_UPDATE_INTERVAL: energy_interval,
+            }
 
             session = async_get_clientsession(getattr(self, "hass", None))
             client = WeheatClient(
@@ -247,6 +351,7 @@ class WeheatOptionsFlowHandler(OptionsFlow):
                         password=password,
                     )
                     new_options = dict(existing_options)
+                    new_options.update(interval_updates)
                     new_options[CONF_PORTAL_USERNAME] = username
                     new_options[CONF_PORTAL_PASSWORD] = password
                     new_options[CONF_PORTAL_TOKEN] = portal_token
@@ -274,6 +379,7 @@ class WeheatOptionsFlowHandler(OptionsFlow):
                         token=portal_token[CONF_ACCESS_TOKEN]
                     )
                     new_options = dict(existing_options)
+                    new_options.update(interval_updates)
                     new_options[CONF_PORTAL_TOKEN] = portal_token
                     return self.async_create_entry(title="", data=new_options)
                 except (ValueError, WeheatError) as err:
@@ -287,9 +393,22 @@ class WeheatOptionsFlowHandler(OptionsFlow):
                         err,
                     )
                     errors["base"] = "invalid_portal_auth"
+            elif (
+                username
+                and username == current_username
+                and (
+                    CONF_PORTAL_TOKEN in existing_options
+                    or CONF_PORTAL_PASSWORD in existing_options
+                )
+            ):
+                # Preserve existing portal credentials when only polling intervals are updated
+                new_options = dict(existing_options)
+                new_options.update(interval_updates)
+                return self.async_create_entry(title="", data=new_options)
             else:
                 # Clear portal credentials if submitted empty
                 new_options = dict(existing_options)
+                new_options.update(interval_updates)
                 new_options.pop(CONF_PORTAL_USERNAME, None)
                 new_options.pop(CONF_PORTAL_PASSWORD, None)
                 new_options.pop(CONF_PORTAL_TOKEN, None)
@@ -297,6 +416,11 @@ class WeheatOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=self._build_schema(current_username),
+            data_schema=self._build_schema(
+                current_username,
+                current_log_interval,
+                current_settings_interval,
+                current_energy_interval,
+            ),
             errors=errors,
         )

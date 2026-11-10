@@ -30,7 +30,10 @@
         "data": {
           "portal_username": "Weheat Portal Email",
           "portal_password": "Weheat Portal Password",
-          "portal_session_token": "Portal Session JSON or Bearer Token (optional, for SSO accounts)"
+          "portal_session_token": "Portal Session JSON or Bearer Token (optional, for SSO accounts)",
+          "log_update_interval": "Telemetry polling interval (seconds)",
+          "settings_update_interval": "Portal settings polling interval (seconds)",
+          "energy_update_interval": "Energy totals polling interval (seconds)"
         }
       }
     },
@@ -90,6 +93,36 @@
         "peak_temperature": {
           "name": "Cooling water target at 40°C outside",
           "description": "Target cooling water temperature (°C) on a peak-summer day (40°C outside)."
+        }
+      }
+    },
+    "set_heating_curve": {
+      "name": "Set heating control method and curve",
+      "description": "Configure the central heating control method and 5-point weather-compensated heating curve water target temperatures at -20°C, 9°C, 15°C, 20°C, and 25°C outside.",
+      "fields": {
+        "control_method": {
+          "name": "Control method",
+          "description": "Central heating control method (Heating curve, On/Off thermostat, or OpenTherm thermostat)."
+        },
+        "at_minus_20c": {
+          "name": "Heating water target at -20°C outside",
+          "description": "Target supply water temperature (°C) at -20°C outside."
+        },
+        "at_9c": {
+          "name": "Heating water target at 9°C outside",
+          "description": "Target supply water temperature (°C) at 9°C outside."
+        },
+        "at_15c": {
+          "name": "Heating water target at 15°C outside",
+          "description": "Target supply water temperature (°C) at 15°C outside."
+        },
+        "at_20c": {
+          "name": "Heating water target at 20°C outside",
+          "description": "Target supply water temperature (°C) at 20°C outside."
+        },
+        "at_25c": {
+          "name": "Heating water target at 25°C outside",
+          "description": "Target supply water temperature (°C) at 25°C outside."
         }
       }
     }
@@ -366,6 +399,30 @@
           "silent_6": "Whisper",
           "silent_7": "Minimum"
         }
+      },
+      "control_method": {
+        "name": "Control method",
+        "state": {
+          "Heating curve": "Heating curve",
+          "On/Off thermostat": "On/Off thermostat",
+          "OpenTherm thermostat": "OpenTherm thermostat"
+        }
+      }
+    },
+    "climate": {
+      "thermostat": {
+        "name": "Thermostat",
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "comfort": "Comfort (21.0°C curve)",
+              "eco": "Eco / Night (20.5°C curve)",
+              "boost": "Boost / Recovery (21.5°C curve)",
+              "standby": "Standby / Idle",
+              "opentherm": "OpenTherm wall thermostat"
+            }
+          }
+        }
       }
     },
     "switch": {
@@ -443,6 +500,21 @@
       },
       "cooling_curve_peak_temperature": {
         "name": "Cooling water target at 40°C outside"
+      },
+      "heating_curve_at_minus_20c": {
+        "name": "Heating water target at -20°C outside"
+      },
+      "heating_curve_at_9c": {
+        "name": "Heating water target at 9°C outside"
+      },
+      "heating_curve_at_15c": {
+        "name": "Heating water target at 15°C outside"
+      },
+      "heating_curve_at_20c": {
+        "name": "Heating water target at 20°C outside"
+      },
+      "heating_curve_at_25c": {
+        "name": "Heating water target at 25°C outside"
       }
     }
   }

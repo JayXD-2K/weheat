@@ -69,7 +69,7 @@ def mock_log() -> HeatPumpLog:
 
 def test_select_catalog_and_options() -> None:
     """Verify select entity catalog and options."""
-    assert len(SELECT_ENTITIES) == 2
+    assert len(SELECT_ENTITIES) == 3
     assert SELECT_ENTITIES[0].key == "performance_mode_preset"
     assert SELECT_ENTITIES[0].options == PERFORMANCE_MODE_OPTIONS
     assert PERFORMANCE_MODE_OPTIONS == [
@@ -91,6 +91,7 @@ def test_select_catalog_and_options() -> None:
         "Background chatter",
         "Normal",
     ]
+    assert SELECT_ENTITIES[2].key == "control_method"
 
 
 def test_performance_mode_select_current_option(
@@ -509,7 +510,7 @@ async def test_async_setup_entry_select_and_switch(
 
     added_selects: list[Any] = []
     await async_setup_select_entry(hass, entry, added_selects.extend)
-    assert len(added_selects) == 2
+    assert len(added_selects) == 3
 
     added_switches: list[Any] = []
     await async_setup_switch_entry(hass, entry, added_switches.extend)
@@ -592,7 +593,18 @@ async def test_async_reload_entry_skips_background_token_refresh(
     await async_reload_entry(hass, entry)
     hass.config_entries.async_reload.assert_not_awaited()
 
-    # 2. User updates credentials in OptionsFlow -> reloads integration
+    # 2. User updates polling interval in OptionsFlow without changing credentials -> reloads integration
+    entry.options = {
+        CONF_PORTAL_USERNAME: "user@example.com",
+        CONF_PORTAL_PASSWORD: "secret",
+        CONF_PORTAL_TOKEN: refreshed_token,
+        "log_update_interval": 15,
+    }
+    await async_reload_entry(hass, entry)
+    hass.config_entries.async_reload.assert_awaited_once_with("entry_1")
+    hass.config_entries.async_reload.reset_mock()
+
+    # 3. User updates credentials in OptionsFlow -> reloads integration
     entry.options = {
         CONF_PORTAL_USERNAME: "newuser@example.com",
         CONF_PORTAL_PASSWORD: "newpassword",

@@ -511,3 +511,42 @@ async def test_options_flow_clear_credentials_and_no_arg_init() -> None:
     assert "portal_username" not in res["data"]
     assert "portal_password" not in res["data"]
     assert "portal_token" not in res["data"]
+
+
+@pytest.mark.asyncio
+async def test_options_flow_custom_polling_intervals_and_preserve_auth() -> None:
+    """Verify options flow saves custom polling intervals and preserves existing portal credentials."""
+    from custom_components.weheat.config_flow import WeheatOptionsFlowHandler
+    from custom_components.weheat.const import (
+        CONF_ENERGY_UPDATE_INTERVAL,
+        CONF_LOG_UPDATE_INTERVAL,
+        CONF_SETTINGS_UPDATE_INTERVAL,
+    )
+
+    entry = ConfigEntry(
+        entry_id="opt_entry_intervals",
+        options={
+            "portal_username": "user@weheat.nl",
+            "portal_password": "secret",
+            "portal_token": {"access_token": "existing_jwt"},
+        },
+    )
+    opt_flow = WeheatOptionsFlowHandler(entry)
+
+    res = await opt_flow.async_step_init(
+        {
+            "portal_username": "user@weheat.nl",
+            "portal_password": "",
+            "portal_session_token": "",
+            CONF_LOG_UPDATE_INTERVAL: 20,
+            CONF_SETTINGS_UPDATE_INTERVAL: 45,
+            CONF_ENERGY_UPDATE_INTERVAL: 600,
+        }
+    )
+    assert res["type"] == "create_entry"
+    assert res["data"]["portal_username"] == "user@weheat.nl"
+    assert res["data"]["portal_password"] == "secret"
+    assert res["data"]["portal_token"] == {"access_token": "existing_jwt"}
+    assert res["data"][CONF_LOG_UPDATE_INTERVAL] == 20
+    assert res["data"][CONF_SETTINGS_UPDATE_INTERVAL] == 45
+    assert res["data"][CONF_ENERGY_UPDATE_INTERVAL] == 600

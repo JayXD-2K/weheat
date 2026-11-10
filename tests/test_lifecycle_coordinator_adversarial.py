@@ -413,12 +413,12 @@ async def test_coordinator_missing_heat_pump_info() -> None:
 @pytest.mark.parametrize(
     ("nr_of_heat_pumps", "expected_seconds"),
     [
-        (1, 120),  # 1 pump: 120s
-        (2, 240),  # 2 pumps: 240s
-        (5, 600),  # 5 pumps: 600s
-        (10, 1200),  # 10 pumps: 1200s
-        (0, 120),  # Clamping: 0 pumps clamped to max(1, 0) == 1 -> 120s
-        (-5, 120),  # Clamping: negative clamped to max(1, -5) == 1 -> 120s
+        (1, 30),  # 1 pump: 30s
+        (2, 60),  # 2 pumps: 60s
+        (5, 150),  # 5 pumps: 150s
+        (10, 300),  # 10 pumps: 300s
+        (0, 30),  # Clamping: 0 pumps clamped to max(1, 0) == 1 -> 30s
+        (-5, 30),  # Clamping: negative clamped to max(1, -5) == 1 -> 30s
     ],
 )
 def test_polling_interval_scaling_dynamics(
@@ -445,7 +445,7 @@ def test_polling_interval_scaling_dynamics(
 def test_energy_coordinator_fixed_interval(
     test_hp_info: HeatPumpInfo, nr_of_heat_pumps: int
 ) -> None:
-    """Verify energy coordinator interval remains strictly fixed at ENERGY_UPDATE_INTERVAL (1800s)."""
+    """Verify energy coordinator interval remains strictly fixed at ENERGY_UPDATE_INTERVAL (900s)."""
     hass = HomeAssistant()
     entry = ConfigEntry()
 
@@ -456,7 +456,7 @@ def test_energy_coordinator_fixed_interval(
         heat_pump_info=test_hp_info,
     )
     assert coord.update_interval == timedelta(seconds=ENERGY_UPDATE_INTERVAL)
-    assert coord.update_interval == timedelta(seconds=1800)
+    assert coord.update_interval == timedelta(seconds=900)
 
 
 # ===========================================================================

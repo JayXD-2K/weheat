@@ -8,7 +8,7 @@ import sys
 import types
 from dataclasses import dataclass
 from datetime import timedelta
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 from typing import Any
 
 
@@ -56,6 +56,7 @@ class UnitOfVolumeFlowRate(StrEnum):
 class Platform(StrEnum):
     SENSOR = "sensor"
     BINARY_SENSOR = "binary_sensor"
+    CLIMATE = "climate"
     SELECT = "select"
     SWITCH = "switch"
     TIME = "time"
@@ -65,6 +66,7 @@ class Platform(StrEnum):
 
 PERCENTAGE = "%"
 REVOLUTIONS_PER_MINUTE = "rpm"
+ATTR_TEMPERATURE = "temperature"
 CONF_ACCESS_TOKEN = "access_token"
 CONF_TOKEN = "token"
 SOURCE_REAUTH = "reauth"
@@ -253,6 +255,67 @@ class NumberEntity(Entity):
 
     async def async_set_native_value(self, value: float) -> None:
         raise NotImplementedError
+
+
+class HVACMode(StrEnum):
+    OFF = "off"
+    HEAT = "heat"
+    COOL = "cool"
+    AUTO = "auto"
+
+
+class HVACAction(StrEnum):
+    OFF = "off"
+    HEATING = "heating"
+    COOLING = "cooling"
+    IDLE = "idle"
+
+
+class ClimateEntityFeature(IntFlag):
+    TARGET_TEMPERATURE = 1
+    PRESET_MODE = 16
+    TURN_OFF = 128
+    TURN_ON = 256
+
+
+@dataclass(frozen=True, kw_only=True)
+class ClimateEntityDescription(EntityDescription):
+    pass
+
+
+class ClimateEntity(Entity):
+    """Mock ClimateEntity."""
+
+    _attr_hvac_mode: HVACMode | None = None
+    _attr_hvac_modes: list[HVACMode] = []
+    _attr_hvac_action: HVACAction | None = None
+    _attr_preset_mode: str | None = None
+    _attr_preset_modes: list[str] = []
+    _attr_temperature_unit: str = "°C"
+    _attr_min_temp: float = 7.0
+    _attr_max_temp: float = 35.0
+    _attr_target_temperature_step: float = 0.5
+    _attr_supported_features: int = 0
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        return self._attr_hvac_modes
+
+    @property
+    def preset_modes(self) -> list[str]:
+        return self._attr_preset_modes
+
+    @property
+    def min_temp(self) -> float:
+        return self._attr_min_temp
+
+    @property
+    def max_temp(self) -> float:
+        return self._attr_max_temp
+
+    @property
+    def target_temperature_step(self) -> float:
+        return self._attr_target_temperature_step
 
 
 class CoordinatorEntity(Entity):
@@ -709,6 +772,7 @@ def install_ha_stubs() -> None:
     ha.const = ha_const
     ha_const.PERCENTAGE = PERCENTAGE
     ha_const.REVOLUTIONS_PER_MINUTE = REVOLUTIONS_PER_MINUTE
+    ha_const.ATTR_TEMPERATURE = ATTR_TEMPERATURE
     ha_const.CONF_ACCESS_TOKEN = CONF_ACCESS_TOKEN
     ha_const.CONF_TOKEN = CONF_TOKEN
     ha_const.EntityCategory = EntityCategory
@@ -816,6 +880,13 @@ def install_ha_stubs() -> None:
     ha_components_number.NumberEntityDescription = NumberEntityDescription
     ha_components_number.NumberMode = NumberMode
 
+    ha_components_climate = types.ModuleType("homeassistant.components.climate")
+    ha_components_climate.ClimateEntity = ClimateEntity
+    ha_components_climate.ClimateEntityDescription = ClimateEntityDescription
+    ha_components_climate.ClimateEntityFeature = ClimateEntityFeature
+    ha_components_climate.HVACAction = HVACAction
+    ha_components_climate.HVACMode = HVACMode
+
     sys.modules["homeassistant"] = ha
     sys.modules["homeassistant.const"] = ha_const
     sys.modules["homeassistant.core"] = ha_core
@@ -841,3 +912,4 @@ def install_ha_stubs() -> None:
     sys.modules["homeassistant.components.time"] = ha_components_time
     sys.modules["homeassistant.components.button"] = ha_components_button
     sys.modules["homeassistant.components.number"] = ha_components_number
+    sys.modules["homeassistant.components.climate"] = ha_components_climate

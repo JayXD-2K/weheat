@@ -137,3 +137,88 @@ set_cooling:
           step: 1
           unit_of_measurement: "°C"
           mode: box
+
+set_heating_curve:
+  name: Set heating control method and curve
+  description: Atomically configure the central heating control method (Heating curve, On/Off thermostat, or OpenTherm thermostat) and the 5-point weather-compensated heating curve water target temperatures at -20°C, 9°C, 15°C, 20°C, and 25°C outside.
+  target:
+    device:
+      integration: weheat
+    entity:
+      integration: weheat
+  fields:
+    control_method:
+      name: Control method
+      description: Central heating control method (Heating curve, On/Off thermostat, or OpenTherm thermostat).
+      required: false
+      example: "Heating curve"
+      selector:
+        select:
+          options:
+            - label: "Heating curve (1: Weather-compensated heating curve)"
+              value: "Heating curve"
+            - label: "On/Off thermostat (2: On/Off thermostat + heating curve)"
+              value: "On/Off thermostat"
+            - label: "OpenTherm thermostat (4: Smart OpenTherm thermostat)"
+              value: "OpenTherm thermostat"
+    at_minus_20c:
+      name: Heating water target at -20°C outside
+      description: Target supply water temperature (°C) at -20°C outside. Keep <= 38–40°C to prevent the 2.85 kW backup electric heater from triggering.
+      required: false
+      example: 37
+      selector:
+        number:
+          min: 15
+          max: 65
+          step: 1
+          unit_of_measurement: "°C"
+          mode: box
+    at_9c:
+      name: Heating water target at 9°C outside
+      description: Target supply water temperature (°C) at 9°C outside.
+      required: false
+      example: 28
+      selector:
+        number:
+          min: 15
+          max: 65
+          step: 1
+          unit_of_measurement: "°C"
+          mode: box
+    at_15c:
+      name: Heating water target at 15°C outside
+      description: Target supply water temperature (°C) at 15°C outside.
+      required: false
+      example: 24
+      selector:
+        number:
+          min: 15
+          max: 65
+          step: 1
+          unit_of_measurement: "°C"
+          mode: box
+    at_20c:
+      name: Heating water target at 20°C outside
+      description: Target supply water temperature (°C) at 20°C outside.
+      required: false
+      example: 20
+      selector:
+        number:
+          min: 15
+          max: 65
+          step: 1
+          unit_of_measurement: "°C"
+          mode: box
+    at_25c:
+      name: Heating water target at 25°C outside
+      description: Target supply water temperature (°C) at 25°C outside.
+      required: false
+      example: 18
+      selector:
+        number:
+          min: 15
+          max: 65
+          step: 1
+          unit_of_measurement: "°C"
+          mode: box
+

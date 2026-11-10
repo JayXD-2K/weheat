@@ -18,7 +18,14 @@ from custom_components.weheat.client import (
     WeheatAuthError,
     WeheatTimeoutError,
 )
-from custom_components.weheat.const import SETTINGS_UPDATE_INTERVAL
+from custom_components.weheat.const import (
+    CONF_ENERGY_UPDATE_INTERVAL,
+    CONF_LOG_UPDATE_INTERVAL,
+    CONF_SETTINGS_UPDATE_INTERVAL,
+    ENERGY_UPDATE_INTERVAL,
+    LOG_UPDATE_INTERVAL,
+    SETTINGS_UPDATE_INTERVAL,
+)
 from custom_components.weheat.coordinator import (
     WeheatData,
     WeheatDataUpdateCoordinator,
@@ -51,31 +58,54 @@ def mock_hp_info() -> HeatPumpInfo:
 
 
 def test_coordinator_intervals(mock_hp_info: HeatPumpInfo) -> None:
-    """Verify coordinator polling intervals scale per HA Core spec."""
+    """Verify coordinator polling intervals scale per default constants and custom options."""
     hass = HomeAssistant()
     entry = ConfigEntry()
 
-    # 1 heat pump: 120s
+    # 1 heat pump: 30s
     coord1 = WeheatDataUpdateCoordinator(
         hass, entry, None, mock_hp_info, nr_of_heat_pumps=1
     )
-    assert coord1.update_interval == timedelta(seconds=120)
+    assert coord1.update_interval == timedelta(seconds=30)
+    assert coord1.update_interval == timedelta(seconds=LOG_UPDATE_INTERVAL)
 
-    # 3 heat pumps: 360s
+    # 3 heat pumps: 90s
     coord3 = WeheatDataUpdateCoordinator(
         hass, entry, None, mock_hp_info, nr_of_heat_pumps=3
     )
-    assert coord3.update_interval == timedelta(seconds=360)
+    assert coord3.update_interval == timedelta(seconds=90)
 
-    # Energy coordinator: fixed 1800s (30m)
+    # Energy coordinator: default 900s (15m)
     coord_energy = WeheatEnergyUpdateCoordinator(hass, entry, None, mock_hp_info)
-    assert coord_energy.update_interval == timedelta(seconds=1800)
+    assert coord_energy.update_interval == timedelta(seconds=900)
+    assert coord_energy.update_interval == timedelta(seconds=ENERGY_UPDATE_INTERVAL)
 
-    # Settings coordinator: fixed 300s (5m)
+    # Settings coordinator: default 60s (1m)
     coord_settings = WeheatSettingsUpdateCoordinator(hass, entry, None, mock_hp_info)
-    assert coord_settings.update_interval == timedelta(seconds=300)
+    assert coord_settings.update_interval == timedelta(seconds=60)
     assert coord_settings.update_interval == timedelta(seconds=SETTINGS_UPDATE_INTERVAL)
     assert coord_settings.name == "weheat_settings"
+
+    # Custom options override
+    custom_entry = ConfigEntry(
+        options={
+            CONF_LOG_UPDATE_INTERVAL: 15,
+            CONF_SETTINGS_UPDATE_INTERVAL: 45,
+            CONF_ENERGY_UPDATE_INTERVAL: 300,
+        }
+    )
+    custom_data_coord = WeheatDataUpdateCoordinator(
+        hass, custom_entry, None, mock_hp_info, nr_of_heat_pumps=2
+    )
+    assert custom_data_coord.update_interval == timedelta(seconds=30)
+    custom_energy_coord = WeheatEnergyUpdateCoordinator(
+        hass, custom_entry, None, mock_hp_info
+    )
+    assert custom_energy_coord.update_interval == timedelta(seconds=300)
+    custom_settings_coord = WeheatSettingsUpdateCoordinator(
+        hass, custom_entry, None, mock_hp_info
+    )
+    assert custom_settings_coord.update_interval == timedelta(seconds=45)
 
 
 @pytest.mark.asyncio
@@ -220,11 +250,11 @@ async def test_energy_coordinator_success_and_errors(
 
 
 def test_settings_coordinator_interval(mock_hp_info: HeatPumpInfo) -> None:
-    """Verify WeheatSettingsUpdateCoordinator polling interval is 300 seconds."""
+    """Verify WeheatSettingsUpdateCoordinator polling interval is 60 seconds by default."""
     hass = HomeAssistant()
     entry = ConfigEntry()
     coord = WeheatSettingsUpdateCoordinator(hass, entry, None, mock_hp_info)
-    assert coord.update_interval == timedelta(seconds=300)
+    assert coord.update_interval == timedelta(seconds=60)
     assert coord.update_interval == timedelta(seconds=SETTINGS_UPDATE_INTERVAL)
     assert coord.name == "weheat_settings"
 

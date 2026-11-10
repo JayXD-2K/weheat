@@ -39,6 +39,7 @@ from .coordinator import WeheatConfigEntry
 from .entity import WeheatControlEntity
 from .models import (
     ControlBoardSettings,
+    ControlMethod,
     HeatPumpInfo,
     PerformanceModePreset,
     SilentHoursScheduledPreset,
@@ -132,6 +133,33 @@ SILENT_HOURS_OPTION_TO_PRESET: dict[str, int] = {
     "Silent 7": SilentHoursScheduledPreset.SILENT_7,
 }
 
+# Heating Control Method Options & Mappings
+# Maps to Weheat Portal UI "Control method" dropdown:
+# Heating curve = Weather-dependent heating curve (1)
+# On/Off thermostat = On/Off contact thermostat + heating curve (2)
+# OpenTherm thermostat = Smart OpenTherm thermostat (4)
+CONTROL_METHOD_OPTIONS: list[str] = [
+    "Heating curve",
+    "On/Off thermostat",
+    "OpenTherm thermostat",
+]
+
+PRESET_TO_CONTROL_METHOD_OPTION: dict[int, str] = {
+    ControlMethod.HEATING_CURVE: "Heating curve",
+    ControlMethod.ON_OFF_THERMOSTAT: "On/Off thermostat",
+    ControlMethod.BASE_OPEN_THERM: "OpenTherm thermostat",
+    ControlMethod.SMART_OPEN_THERM: "OpenTherm thermostat",
+}
+
+CONTROL_METHOD_OPTION_TO_PRESET: dict[str, int] = {
+    "Heating curve": ControlMethod.HEATING_CURVE,
+    "On/Off thermostat": ControlMethod.ON_OFF_THERMOSTAT,
+    "OpenTherm thermostat": ControlMethod.SMART_OPEN_THERM,
+    "heating_curve": ControlMethod.HEATING_CURVE,
+    "on_off_thermostat": ControlMethod.ON_OFF_THERMOSTAT,
+    "opentherm_thermostat": ControlMethod.SMART_OPEN_THERM,
+}
+
 
 @dataclass(frozen=True, kw_only=True)
 class WeheatSelectEntityDescription(SelectEntityDescription):
@@ -148,6 +176,11 @@ SELECT_ENTITIES: tuple[WeheatSelectEntityDescription, ...] = (
         key="silent_hours_preset",
         translation_key="silent_hours_preset",
         options=SILENT_HOURS_OPTIONS,
+    ),
+    WeheatSelectEntityDescription(
+        key="control_method",
+        translation_key="control_method",
+        options=CONTROL_METHOD_OPTIONS,
     ),
 )
 
@@ -183,6 +216,15 @@ async def async_setup_entry(
                 heat_pump_info=info,
                 coordinator=coordinator,
                 entity_description=SELECT_ENTITIES[1],
+                client=client,
+                session=session,
+            )
+        )
+        entities.append(
+            WeheatControlMethodSelect(
+                heat_pump_info=info,
+                coordinator=coordinator,
+                entity_description=SELECT_ENTITIES[2],
                 client=client,
                 session=session,
             )
@@ -463,4 +505,102 @@ class WeheatSilentHoursPresetSelect(WeheatControlEntity, SelectEntity):
             _LOGGER.error("Unexpected error setting silent hours preset: %s", err)
             raise HomeAssistantError(
                 f"Unexpected error setting silent hours preset: {err}"
+            ) from err
+
+
+class WeheatControlMethodSelect(WeheatControlEntity, SelectEntity):
+    """Select entity for Heating Control Method (1=Heating curve, 2=On/Off, 4=OpenTherm)."""
+
+    entity_description: WeheatSelectEntityDescription
+
+    def __init__(
+        self,
+        heat_pump_info: HeatPumpInfo,
+        coordinator: Any,
+        entity_description: WeheatSelectEntityDescription,
+        client: WeheatClient | None = None,
+        session: Any | None = None,
+    ) -> None:
+        """Initialize the heating control method select entity."""
+        super().__init__(
+            heat_pump_info, coordinator, entity_description, client, session
+        )
+        self._attr_options = list(CONTROL_METHOD_OPTIONS)
+        self._attr_icon = "mdi:tune-variant"
+
+    @property
+    def current_option(self) -> str | None:
+        """Return current heating control method option from coordinator cache."""
+        data = self.coordinator.data
+        if data is None:
+            return None
+
+        if isinstance(data, ControlBoardSettings) or hasattr(data, "control_method"):
+            method = data.control_method
+        elif isinstance(data, dict):
+            method = data.get("controlMethod")
+            if method is None:
+                method = data.get("ControlMethod")
+            if method is None:
+                method = data.get("control_method")
+        else:
+            return None
+
+        if method is not None and method in PRESET_TO_CONTROL_METHOD_OPTION:
+            return PRESET_TO_CONTROL_METHOD_OPTION[int(method)]
+        return None
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the heating control method and await setting completion."""
+        if self._session is not None and hasattr(self._session, "check_portal_auth"):
+            self._session.check_portal_auth()
+
+        if option not in CONTROL_METHOD_OPTION_TO_PRESET:
+            raise ValueError(
+                f"Invalid option '{option}'. Must be one of {CONTROL_METHOD_OPTIONS}"
+            )
+
+        method = CONTROL_METHOD_OPTION_TO_PRESET[option]
+        if self._client is None:
+            raise HomeAssistantError("Weheat client is not available")
+
+        try:
+            token = await self._async_get_token()
+            control_board_id = await self._async_get_control_board_id(token)
+
+            settings_data = (
+                self.coordinator.data
+                if isinstance(self.coordinator.data, ControlBoardSettings)
+                else ControlBoardSettings()
+            )
+            payload = settings_data.build_heating_curve_payload(control_method=method)
+
+            if hasattr(self._client, "async_patch_control_board_settings"):
+                request_id = await self._client.async_patch_control_board_settings(
+                    control_board_id=control_board_id,
+                    token=token,
+                    settings=payload,
+                )
+            else:
+                request_id = await self._client.async_set_heating_curve(
+                    control_board_id=control_board_id,
+                    token=token,
+                    heating_payload=payload,
+                )
+
+            await self._client.async_poll_settings_request(
+                control_board_id=control_board_id,
+                request_id=request_id,
+                token=token,
+            )
+            await self.coordinator.async_request_refresh()
+        except WeheatError as err:
+            _LOGGER.error("Failed to set control method to %s: %s", option, err)
+            raise HomeAssistantError(
+                f"Failed to set control method to {option}: {err}"
+            ) from err
+        except Exception as err:
+            _LOGGER.error("Unexpected error setting control method: %s", err)
+            raise HomeAssistantError(
+                f"Unexpected error setting control method: {err}"
             ) from err

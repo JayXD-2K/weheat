@@ -24,10 +24,13 @@ from .const import (
     COOLING_CURVE_MIN_TEMP_DEFAULT,
     DAYS_OF_WEEK,
     DOMAIN,
+    HEATING_CURVE_MAX_TEMP,
+    HEATING_CURVE_MIN_TEMP,
 )
 from .coordinator import WeheatConfigEntry, WeheatData
 from .models import (
     ControlBoardSettings,
+    ControlMethod,
     PerformanceModePreset,
     SilentHoursScheduledPreset,
 )
@@ -39,6 +42,24 @@ SERVICE_SET_QUIET_MODE = "set_quiet_mode"
 SERVICE_SET_SILENT_SCHEDULE = "set_silent_schedule"
 SERVICE_TRIGGER_LEGIONELLA = "trigger_legionella_prevention"
 SERVICE_SET_COOLING = "set_cooling"
+SERVICE_SET_HEATING_CURVE = "set_heating_curve"
+
+CONTROL_METHOD_MAPPING: dict[str | int, int] = {
+    1: ControlMethod.HEATING_CURVE,
+    2: ControlMethod.ON_OFF_THERMOSTAT,
+    4: ControlMethod.SMART_OPEN_THERM,
+    "1": ControlMethod.HEATING_CURVE,
+    "2": ControlMethod.ON_OFF_THERMOSTAT,
+    "4": ControlMethod.SMART_OPEN_THERM,
+    "heating curve": ControlMethod.HEATING_CURVE,
+    "heating_curve": ControlMethod.HEATING_CURVE,
+    "on/off thermostat": ControlMethod.ON_OFF_THERMOSTAT,
+    "on_off_thermostat": ControlMethod.ON_OFF_THERMOSTAT,
+    "on_off": ControlMethod.ON_OFF_THERMOSTAT,
+    "opentherm thermostat": ControlMethod.SMART_OPEN_THERM,
+    "opentherm_thermostat": ControlMethod.SMART_OPEN_THERM,
+    "opentherm": ControlMethod.SMART_OPEN_THERM,
+}
 
 # Preset Mapping Dictionaries (case-insensitive & aliases)
 QUIET_MODE_MAPPING: dict[str | int, int] = {
@@ -784,6 +805,153 @@ async def async_handle_set_cooling(hass: HomeAssistant, call: ServiceCall) -> No
             )
 
 
+async def async_handle_set_heating_curve(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle weheat.set_heating_curve service call."""
+    raw_method = call.data.get("control_method")
+    parsed_method: int | None = None
+    if raw_method is not None:
+        if isinstance(raw_method, bool) or not isinstance(raw_method, (str, int)):
+            raise HomeAssistantError(
+                f"Invalid control_method '{raw_method}'. Expected string or integer."
+            )
+        norm_key = (
+            str(raw_method).strip().lower()
+            if isinstance(raw_method, str)
+            else raw_method
+        )
+        if norm_key not in CONTROL_METHOD_MAPPING:
+            raise HomeAssistantError(
+                f"Invalid control_method '{raw_method}'. Must be one of: Heating curve, On/Off thermostat, OpenTherm thermostat (or 1, 2, 4)."
+            )
+        parsed_method = CONTROL_METHOD_MAPPING[norm_key]
+
+    def _parse_optional_heating_temp(field_name: str) -> int | None:
+        raw_val = call.data.get(field_name)
+        if raw_val is None:
+            return None
+        if isinstance(raw_val, bool) or not isinstance(raw_val, (int, float)):
+            raise HomeAssistantError(
+                f"Invalid '{field_name}' value '{raw_val}'. Expected integer temperature in °C."
+            )
+        temp_int = round(float(raw_val))
+        if not (HEATING_CURVE_MIN_TEMP <= temp_int <= HEATING_CURVE_MAX_TEMP):
+            raise HomeAssistantError(
+                f"Invalid '{field_name}' temperature {raw_val} °C. Must be between {HEATING_CURVE_MIN_TEMP} and {HEATING_CURVE_MAX_TEMP} °C."
+            )
+        return temp_int
+
+    raw_curve_y = call.data.get("curve_y")
+    parsed_curve_y: list[int] | None = None
+    if raw_curve_y is not None:
+        if (
+            not isinstance(raw_curve_y, (list, tuple))
+            or len(raw_curve_y) != 5
+            or any(
+                isinstance(v, bool) or not isinstance(v, (int, float))
+                for v in raw_curve_y
+            )
+        ):
+            raise HomeAssistantError(
+                "Invalid 'curve_y' value. Expected a list of 5 temperatures in °C for [-20°C, 9°C, 15°C, 20°C, 25°C]."
+            )
+        parsed_curve_y = []
+        for v in raw_curve_y:
+            t_int = round(float(v))
+            if not (HEATING_CURVE_MIN_TEMP <= t_int <= HEATING_CURVE_MAX_TEMP):
+                raise HomeAssistantError(
+                    f"Invalid temperature {v} °C in 'curve_y'. Each point must be between {HEATING_CURVE_MIN_TEMP} and {HEATING_CURVE_MAX_TEMP} °C."
+                )
+            parsed_curve_y.append(t_int)
+
+    at_m20 = _parse_optional_heating_temp("at_minus_20c")
+    at_9 = _parse_optional_heating_temp("at_9c")
+    at_15 = _parse_optional_heating_temp("at_15c")
+    at_20 = _parse_optional_heating_temp("at_20c")
+    at_25 = _parse_optional_heating_temp("at_25c")
+
+    if (
+        parsed_method is None
+        and parsed_curve_y is None
+        and all(v is None for v in (at_m20, at_9, at_15, at_20, at_25))
+    ):
+        raise HomeAssistantError(
+            "At least one parameter (control_method, curve_y, or a heating curve point at_minus_20c..at_25c) must be provided."
+        )
+
+    targets = _resolve_target_data(hass, call)
+
+    for data in targets:
+        if data.session is not None and hasattr(data.session, "check_portal_auth"):
+            data.session.check_portal_auth()
+
+        client = data.client
+        if client is None:
+            raise HomeAssistantError("Weheat API client is unavailable")
+
+        settings_obj = getattr(data, "settings_coordinator", None) and getattr(
+            data.settings_coordinator, "data", None
+        )
+        if not isinstance(settings_obj, ControlBoardSettings):
+            settings_obj = (
+                ControlBoardSettings.from_api_dict(settings_obj)
+                if isinstance(settings_obj, dict)
+                else ControlBoardSettings()
+            )
+
+        effective_method = (
+            parsed_method
+            if parsed_method is not None
+            else (
+                int(ControlMethod.HEATING_CURVE)
+                if settings_obj.control_method == ControlMethod.SMART_OPEN_THERM
+                else settings_obj.control_method
+            )
+        )
+
+        payload = settings_obj.build_heating_curve_payload(
+            control_method=effective_method,
+            curve_y=parsed_curve_y,
+            at_minus_20c=at_m20,
+            at_9c=at_9,
+            at_15c=at_15,
+            at_20c=at_20,
+            at_25c=at_25,
+        )
+
+        try:
+            token = await _async_get_token(data)
+            cb_id = await _async_get_control_board_id(data, token)
+
+            if hasattr(client, "async_patch_control_board_settings"):
+                req_id = await client.async_patch_control_board_settings(
+                    control_board_id=cb_id,
+                    token=token,
+                    settings=payload,
+                )
+            else:
+                req_id = await client.async_set_heating_curve(
+                    control_board_id=cb_id,
+                    token=token,
+                    heating_payload=payload,
+                )
+
+            await client.async_poll_settings_request(
+                control_board_id=cb_id,
+                request_id=req_id,
+                token=token,
+            )
+            await _async_refresh_coordinators(data)
+        except Exception as err:
+            _raise_service_error(
+                err,
+                fail_verb="configure heating curve",
+                comm_verb="configuring heating curve",
+                heatpump_id=data.heat_pump_info.heatpump_id,
+            )
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Register all Weheat integration custom actions/services."""
     if not hasattr(hass, "services"):
@@ -815,12 +983,18 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_SET_COOLING,
         lambda call: async_handle_set_cooling(hass, call),
     )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_HEATING_CURVE,
+        lambda call: async_handle_set_heating_curve(hass, call),
+    )
     _LOGGER.info(
-        "Registered Weheat custom actions: %s, %s, %s, %s",
+        "Registered Weheat custom actions: %s, %s, %s, %s, %s",
         SERVICE_SET_QUIET_MODE,
         SERVICE_SET_SILENT_SCHEDULE,
         SERVICE_TRIGGER_LEGIONELLA,
         SERVICE_SET_COOLING,
+        SERVICE_SET_HEATING_CURVE,
     )
 
 
@@ -834,6 +1008,7 @@ async def async_unload_services(hass: HomeAssistant) -> None:
         SERVICE_SET_SILENT_SCHEDULE,
         SERVICE_TRIGGER_LEGIONELLA,
         SERVICE_SET_COOLING,
+        SERVICE_SET_HEATING_CURVE,
     ):
         if hasattr(hass.services, "has_service") and hass.services.has_service(
             DOMAIN, service

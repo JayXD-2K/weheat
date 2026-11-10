@@ -284,7 +284,7 @@ async def test_cooling_curve_number_entities(
 
     added_numbers: list[WeheatCoolingCurveNumber] = []
     await async_setup_number_entry(MagicMock(), entry, added_numbers.extend)
-    assert len(added_numbers) == 2
+    assert len(added_numbers) == 7
 
     mild_num, peak_num = added_numbers[0], added_numbers[1]
     assert mild_num.unique_id == f"{TEST_HP_UUID}_cooling_curve_mild_temperature"

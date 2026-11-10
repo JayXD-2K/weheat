@@ -25,13 +25,19 @@ from .client import (
     WeheatTimeoutError,
 )
 from .const import (
+    CONF_ENERGY_UPDATE_INTERVAL,
+    CONF_LOG_UPDATE_INTERVAL,
     CONF_PORTAL_PASSWORD,
     CONF_PORTAL_TOKEN,
     CONF_PORTAL_USERNAME,
+    CONF_SETTINGS_UPDATE_INTERVAL,
     DOMAIN,
     ENERGY_UPDATE_INTERVAL,
     LOG_UPDATE_INTERVAL,
     LOGGER,
+    MIN_ENERGY_UPDATE_INTERVAL,
+    MIN_LOG_UPDATE_INTERVAL,
+    MIN_SETTINGS_UPDATE_INTERVAL,
     SETTINGS_UPDATE_INTERVAL,
 )
 from .models import (
@@ -45,6 +51,25 @@ if TYPE_CHECKING:
     from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session
 
 type WeheatConfigEntry = ConfigEntry[list[WeheatData]]
+
+
+def _get_configured_interval(
+    config_entry: ConfigEntry[Any] | None,
+    key: str,
+    default: int,
+    minimum: int = 5,
+) -> int:
+    """Extract and clamp a polling interval (in seconds) from config entry options."""
+    if config_entry is not None:
+        options = getattr(config_entry, "options", None) or {}
+        data = getattr(config_entry, "data", None) or {}
+        raw_val = options.get(key, data.get(key))
+        if raw_val is not None and not isinstance(raw_val, bool):
+            try:
+                return max(minimum, int(raw_val))
+            except (TypeError, ValueError):
+                pass
+    return default
 
 
 async def _async_ensure_session_token(session: Any) -> str | None:
@@ -86,7 +111,13 @@ class WeheatDataUpdateCoordinator(DataUpdateCoordinator[HeatPumpLog]):
             nr_of_heat_pumps: Total number of active heat pumps on account (scales interval).
             client: Optional WeheatClient instance (instantiated if not provided).
         """
-        interval_seconds = LOG_UPDATE_INTERVAL * max(1, nr_of_heat_pumps)
+        base_interval = _get_configured_interval(
+            config_entry,
+            CONF_LOG_UPDATE_INTERVAL,
+            LOG_UPDATE_INTERVAL,
+            MIN_LOG_UPDATE_INTERVAL,
+        )
+        interval_seconds = base_interval * max(1, nr_of_heat_pumps)
         super().__init__(
             hass,
             logger=getattr(hass, "logger", None) or LOGGER,
@@ -129,7 +160,7 @@ class WeheatDataUpdateCoordinator(DataUpdateCoordinator[HeatPumpLog]):
 
 
 class WeheatEnergyUpdateCoordinator(DataUpdateCoordinator[HeatPumpEnergy]):
-    """Data update coordinator for cumulative energy totals (polled every 30 minutes)."""
+    """Data update coordinator for cumulative energy totals (polled every 15 minutes by default)."""
 
     config_entry: WeheatConfigEntry
 
@@ -150,12 +181,18 @@ class WeheatEnergyUpdateCoordinator(DataUpdateCoordinator[HeatPumpEnergy]):
             heat_pump_info: Discovery metadata for this heat pump.
             client: Optional WeheatClient instance (instantiated if not provided).
         """
+        interval_seconds = _get_configured_interval(
+            config_entry,
+            CONF_ENERGY_UPDATE_INTERVAL,
+            ENERGY_UPDATE_INTERVAL,
+            MIN_ENERGY_UPDATE_INTERVAL,
+        )
         super().__init__(
             hass,
             logger=getattr(hass, "logger", None) or LOGGER,
             name=DOMAIN,
             config_entry=config_entry,
-            update_interval=timedelta(seconds=ENERGY_UPDATE_INTERVAL),
+            update_interval=timedelta(seconds=interval_seconds),
         )
         self.session = session
         self.heat_pump_info = heat_pump_info
@@ -189,7 +226,7 @@ class WeheatEnergyUpdateCoordinator(DataUpdateCoordinator[HeatPumpEnergy]):
 class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings]):
     """Data update coordinator for control board and installation settings.
 
-    Polls /api/v1/installations/{installation_id}/settings every 5 minutes (300s)
+    Polls /api/v1/installations/{installation_id}/settings every 60 seconds by default
     and supports immediate on-demand refresh after control mutations.
     """
 
@@ -212,12 +249,18 @@ class WeheatSettingsUpdateCoordinator(DataUpdateCoordinator[ControlBoardSettings
             heat_pump_info: Discovery metadata for this heat pump.
             client: Optional WeheatClient instance (instantiated if not provided).
         """
+        interval_seconds = _get_configured_interval(
+            config_entry,
+            CONF_SETTINGS_UPDATE_INTERVAL,
+            SETTINGS_UPDATE_INTERVAL,
+            MIN_SETTINGS_UPDATE_INTERVAL,
+        )
         super().__init__(
             hass,
             logger=getattr(hass, "logger", None) or LOGGER,
             name=f"{DOMAIN}_settings",
             config_entry=config_entry,
-            update_interval=timedelta(seconds=SETTINGS_UPDATE_INTERVAL),
+            update_interval=timedelta(seconds=interval_seconds),
         )
         self.session = session
         self.heat_pump_info = heat_pump_info
@@ -320,6 +363,7 @@ class WeheatPortalSession:
         self._known_credentials: tuple[str | None, str | None] = (
             self._get_portal_credentials()
         )
+        self._known_intervals: tuple[int, int, int] = self._get_polling_intervals()
 
     def _extract_portal_token(self) -> dict[str, Any] | None:
         """Extract portal token dict from config entry options or data."""
@@ -384,10 +428,34 @@ class WeheatPortalSession:
             return self.fallback_session.token
         return {}
 
+    def _get_polling_intervals(self) -> tuple[int, int, int]:
+        """Extract configured polling intervals (log, settings, energy)."""
+        return (
+            _get_configured_interval(
+                self.config_entry,
+                CONF_LOG_UPDATE_INTERVAL,
+                LOG_UPDATE_INTERVAL,
+                MIN_LOG_UPDATE_INTERVAL,
+            ),
+            _get_configured_interval(
+                self.config_entry,
+                CONF_SETTINGS_UPDATE_INTERVAL,
+                SETTINGS_UPDATE_INTERVAL,
+                MIN_SETTINGS_UPDATE_INTERVAL,
+            ),
+            _get_configured_interval(
+                self.config_entry,
+                CONF_ENERGY_UPDATE_INTERVAL,
+                ENERGY_UPDATE_INTERVAL,
+                MIN_ENERGY_UPDATE_INTERVAL,
+            ),
+        )
+
     def _persist_portal_token(self, new_token: dict[str, Any]) -> None:
         """Persist updated portal token into memory and config entry options."""
         self._portal_token = dict(new_token)
         self._known_credentials = self._get_portal_credentials()
+        self._known_intervals = self._get_polling_intervals()
         options = dict(getattr(self.config_entry, "options", None) or {})
         options[CONF_PORTAL_TOKEN] = dict(new_token)
         if hasattr(self.config_entry, "options") and isinstance(

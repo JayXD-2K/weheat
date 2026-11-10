@@ -902,6 +902,68 @@ class WeheatClient:
             update_immediately=False,
         )
 
+    async def async_set_heating_curve(
+        self,
+        control_board_id: str,
+        token: str | None = None,
+        heating_payload: dict[str, Any] | None = None,
+        control_method: int | None = None,
+        heating_curve_y: list[int] | None = None,
+    ) -> str:
+        """Configure heating control method and 5-point heating curve on the control board.
+
+        Args:
+            control_board_id: Target control board ID.
+            token: Access token for Bearer authorization.
+            heating_payload: Pre-built heating payload from ControlBoardSettings.build_heating_curve_payload.
+            control_method: Optional control method (1=Heating curve, 2=On/Off thermostat, 4=OpenTherm thermostat).
+            heating_curve_y: Optional 5-element list [at_-20c, at_9c, at_15c, at_20c, at_25c] in °C.
+
+        Returns:
+            The settingsRequestId string.
+        """
+        if heating_payload is not None:
+            return await self.async_patch_control_board_settings(
+                control_board_id=control_board_id,
+                token=token,
+                settings=heating_payload,
+                update_immediately=False,
+            )
+
+        settings_dict: dict[str, Any] = {}
+        if control_method is not None:
+            if isinstance(control_method, bool) or int(control_method) not in (1, 2, 4):
+                raise ValueError(
+                    f"Invalid control_method {control_method}; must be 1 (Heating curve), 2 (On/Off thermostat), or 4 (OpenTherm thermostat)."
+                )
+            settings_dict["ControlMethod"] = int(control_method)
+
+        if heating_curve_y is not None:
+            if (
+                not isinstance(heating_curve_y, (list, tuple))
+                or len(heating_curve_y) != 5
+                or any(
+                    isinstance(v, bool) or not isinstance(v, int) or not (0 <= v <= 70)
+                    for v in heating_curve_y
+                )
+            ):
+                raise ValueError(
+                    f"Invalid heating_curve_y {heating_curve_y}; must be 5 integers between 0 and 70 °C."
+                )
+            settings_dict["HeatingCurveY"] = [int(v) for v in heating_curve_y]
+
+        if not settings_dict:
+            raise ValueError(
+                "Either control_method or heating_curve_y must be provided"
+            )
+
+        return await self.async_patch_control_board_settings(
+            control_board_id=control_board_id,
+            token=token,
+            settings=settings_dict,
+            update_immediately=False,
+        )
+
     # -------------------------------------------------------------------------
     # Asynchronous Status Polling
     # -------------------------------------------------------------------------

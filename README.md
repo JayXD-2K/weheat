@@ -10,6 +10,10 @@ Custom Home Assistant integration for Weheat heat pumps (**Blackbird P60/P80**, 
   - **Performance mode** (`Mode 5 - Max capacity` down to `Mode 1 - Minimum noise`).
   - **Silent hours preset** (`Off`, `Minimum`, `Whisper`, `Library`, `Light rain`, `Background chatter`, `Normal`).
   - **Silent hours schedule** toggle and per-day start/stop time controls (`Monday`–`Sunday`).
+- **Heating Control & Thermostat**:
+  - **Thermostat (`climate`)**: Native Home Assistant thermostat with room temperature setpoint (`16.0–24.0 °C`), presets (`Comfort`, `Eco`, `Boost`, `Standby`, `OpenTherm`), and anti-electric-heater water temperature capping.
+  - **Control method** (`Heating curve`, `On/Off thermostat`, `OpenTherm thermostat`).
+  - **5-point Heating Curve** water target controls at **-20°C**, **9°C**, **15°C**, **20°C**, and **25°C** outside (`15–65 °C`).
 - **Cooling Mode & Curve**:
   - **Cooling mode** switch.
   - **Cooling water target at 22°C outside** and **40°C outside** (`15–22 °C`).
@@ -17,8 +21,8 @@ Custom Home Assistant integration for Weheat heat pumps (**Blackbird P60/P80**, 
   - **DHW boost** and **Legionella prevention** switches.
 - **Full Telemetry & Two-Way Sync**:
   - 39 sensors and 16 binary sensors matching the official integration.
-  - Automatic polling every **2m** (telemetry), **5m** (portal settings sync), and **30m** (energy totals) with silent background token refresh.
-- **Custom Actions**: `weheat.set_quiet_mode`, `weheat.set_silent_schedule`, `weheat.set_cooling`, and `weheat.trigger_legionella_prevention`.
+  - Automatic polling every **30s** (telemetry), **60s** (portal settings sync), and **15m** (energy totals) by default (configurable in integration options) with silent background token refresh.
+- **Custom Actions**: `weheat.set_quiet_mode`, `weheat.set_silent_schedule`, `weheat.set_heating_curve`, `weheat.set_cooling`, and `weheat.trigger_legionella_prevention`.
 
 ## Installation
 

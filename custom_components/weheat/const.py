@@ -11,9 +11,20 @@ ENTRY_TITLE = "Weheat cloud"
 LOGGER: logging.Logger = logging.getLogger(__package__)
 
 # Polling intervals (seconds)
-LOG_UPDATE_INTERVAL = 120
-ENERGY_UPDATE_INTERVAL = 1800
-SETTINGS_UPDATE_INTERVAL = 300
+LOG_UPDATE_INTERVAL = 30
+ENERGY_UPDATE_INTERVAL = 900
+SETTINGS_UPDATE_INTERVAL = 60
+
+MIN_LOG_UPDATE_INTERVAL = 10
+MAX_LOG_UPDATE_INTERVAL = 3600
+MIN_SETTINGS_UPDATE_INTERVAL = 15
+MAX_SETTINGS_UPDATE_INTERVAL = 3600
+MIN_ENERGY_UPDATE_INTERVAL = 60
+MAX_ENERGY_UPDATE_INTERVAL = 86400
+
+CONF_LOG_UPDATE_INTERVAL = "log_update_interval"
+CONF_SETTINGS_UPDATE_INTERVAL = "settings_update_interval"
+CONF_ENERGY_UPDATE_INTERVAL = "energy_update_interval"
 
 # Suggested display precision
 DISPLAY_PRECISION_WATTS = 0
@@ -130,3 +141,15 @@ DEFAULT_COOLING_CURVE_X: tuple[int, int] = (22, 40)
 DEFAULT_COOLING_CURVE_Y: tuple[int, int] = (18, 20)
 COOLING_CURVE_MIN_TEMP_DEFAULT = 15
 COOLING_CURVE_MAX_TEMP = 22
+
+# Heating Curve Constants (Weheat Portal 5-point specification: -20°C, 9°C, 15°C, 20°C, 25°C)
+DEFAULT_HEATING_CURVE_X: tuple[int, int, int, int, int] = (-20, 9, 15, 20, 25)
+DEFAULT_HEATING_CURVE_Y: tuple[int, int, int, int, int] = (42, 27, 23, 20, 18)
+COMFORT_HEATING_CURVE_Y: tuple[int, int, int, int, int] = (37, 28, 24, 20, 18)
+ECO_HEATING_CURVE_Y: tuple[int, int, int, int, int] = (35, 26, 22, 19, 18)
+BOOST_HEATING_CURVE_Y: tuple[int, int, int, int, int] = (39, 30, 25, 21, 18)
+STANDBY_HEATING_CURVE_Y: tuple[int, int, int, int, int] = (20, 18, 18, 18, 18)
+HEATING_CURVE_MIN_TEMP = 15
+HEATING_CURVE_MAX_TEMP = 65
+HEATING_CURVE_API_MIN_TEMP = 0
+HEATING_CURVE_API_MAX_TEMP = 70

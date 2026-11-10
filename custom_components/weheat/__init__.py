@@ -47,6 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.CLIMATE,
     Platform.NUMBER,
     Platform.SENSOR,
     Platform.SELECT,
@@ -216,10 +217,13 @@ async def async_reload_entry(hass: HomeAssistant, entry: WeheatConfigEntry) -> N
         if isinstance(session, WeheatPortalSession):
             current_creds = session._get_portal_credentials()
             known_creds = getattr(session, "_known_credentials", None)
+            current_intervals = session._get_polling_intervals()
+            known_intervals = getattr(session, "_known_intervals", current_intervals)
             entry_tok = (getattr(entry, "options", None) or {}).get(CONF_PORTAL_TOKEN)
             mem_tok = session._portal_token
             if (
                 current_creds == known_creds
+                and current_intervals == known_intervals
                 and isinstance(entry_tok, dict)
                 and isinstance(mem_tok, dict)
                 and entry_tok.get(CONF_ACCESS_TOKEN)

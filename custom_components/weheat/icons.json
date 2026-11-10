@@ -151,6 +151,14 @@
       },
       "silent_hours_preset": {
         "default": "mdi:volume-mute"
+      },
+      "control_method": {
+        "default": "mdi:tune-variant"
+      }
+    },
+    "climate": {
+      "thermostat": {
+        "default": "mdi:thermostat"
       }
     },
     "switch": {
@@ -228,6 +236,21 @@
       },
       "cooling_curve_peak_temperature": {
         "default": "mdi:snowflake-thermometer"
+      },
+      "heating_curve_at_minus_20c": {
+        "default": "mdi:chart-bell-curve-cumulative"
+      },
+      "heating_curve_at_9c": {
+        "default": "mdi:chart-bell-curve-cumulative"
+      },
+      "heating_curve_at_15c": {
+        "default": "mdi:chart-bell-curve-cumulative"
+      },
+      "heating_curve_at_20c": {
+        "default": "mdi:chart-bell-curve-cumulative"
+      },
+      "heating_curve_at_25c": {
+        "default": "mdi:chart-bell-curve-cumulative"
       }
     }
   }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum
@@ -14,6 +15,10 @@ from .const import (
     DAYS_OF_WEEK,
     DEFAULT_COOLING_CURVE_X,
     DEFAULT_COOLING_CURVE_Y,
+    DEFAULT_HEATING_CURVE_X,
+    DEFAULT_HEATING_CURVE_Y,
+    HEATING_CURVE_API_MAX_TEMP,
+    HEATING_CURVE_API_MIN_TEMP,
 )
 
 # Numeric states observed during defrost cycles
@@ -919,6 +924,13 @@ class ControlBoardSettings:
     performance_mode_preset: int = 0
     silent_hours_preset: int = 0
     dhw_target_temperature: float = 50.0
+    control_method: int = int(ControlMethod.SMART_OPEN_THERM)
+    heating_curve_x: list[int] = field(
+        default_factory=lambda: list(DEFAULT_HEATING_CURVE_X)
+    )
+    heating_curve_y: list[int] = field(
+        default_factory=lambda: list(DEFAULT_HEATING_CURVE_Y)
+    )
     cooling_control_method: int = 0
     cooling_enabled: int | None = None
     cooling_min_setpoint: int = COOLING_CURVE_MIN_TEMP_DEFAULT
@@ -940,6 +952,66 @@ class ControlBoardSettings:
     @silent_hours_scheduled_preset.setter
     def silent_hours_scheduled_preset(self, value: int) -> None:
         self.silent_hours_preset = int(value)
+
+    def _get_heating_curve_point(self, index: int) -> int:
+        """Return the heating curve water target (°C) at index (0..4)."""
+        if isinstance(self.heating_curve_y, list) and len(self.heating_curve_y) > index:
+            with contextlib.suppress(ValueError, TypeError):
+                return int(self.heating_curve_y[index])
+        return DEFAULT_HEATING_CURVE_Y[index]
+
+    @property
+    def heating_curve_at_minus_20c(self) -> int:
+        """Return heating water target temperature (°C) at -20°C outside."""
+        return self._get_heating_curve_point(0)
+
+    @property
+    def heating_curve_at_9c(self) -> int:
+        """Return heating water target temperature (°C) at 9°C outside."""
+        return self._get_heating_curve_point(1)
+
+    @property
+    def heating_curve_at_15c(self) -> int:
+        """Return heating water target temperature (°C) at 15°C outside."""
+        return self._get_heating_curve_point(2)
+
+    @property
+    def heating_curve_at_20c(self) -> int:
+        """Return heating water target temperature (°C) at 20°C outside."""
+        return self._get_heating_curve_point(3)
+
+    @property
+    def heating_curve_at_25c(self) -> int:
+        """Return heating water target temperature (°C) at 25°C outside."""
+        return self._get_heating_curve_point(4)
+
+    def interpolate_heating_curve(self, outside_temperature: float) -> float:
+        """Interpolate the 5-point heating curve at the given outdoor temperature (°C)."""
+        xs = (
+            list(self.heating_curve_x)
+            if isinstance(self.heating_curve_x, list) and len(self.heating_curve_x) == 5
+            else list(DEFAULT_HEATING_CURVE_X)
+        )
+        ys = [
+            self.heating_curve_at_minus_20c,
+            self.heating_curve_at_9c,
+            self.heating_curve_at_15c,
+            self.heating_curve_at_20c,
+            self.heating_curve_at_25c,
+        ]
+        t_out = float(outside_temperature)
+        if t_out <= xs[0]:
+            return float(ys[0])
+        if t_out >= xs[-1]:
+            return float(ys[-1])
+        for i in range(len(xs) - 1):
+            x0, x1 = float(xs[i]), float(xs[i + 1])
+            if x0 <= t_out <= x1:
+                if x1 == x0:
+                    return float(ys[i])
+                ratio = (t_out - x0) / (x1 - x0)
+                return round(ys[i] + ratio * (ys[i + 1] - ys[i]), 1)
+        return float(ys[1])
 
     @property
     def is_cooling_enabled(self) -> bool:
@@ -1021,12 +1093,12 @@ class ControlBoardSettings:
                 return default
 
         def _get_int_list(
-            camel_key: str, pascal_key: str, default: tuple[int, int]
+            camel_key: str, pascal_key: str, default: Sequence[int]
         ) -> list[int]:
             val = _get_raw(camel_key, pascal_key)
-            if isinstance(val, (list, tuple)) and len(val) >= 2:
+            if isinstance(val, (list, tuple)) and len(val) >= len(default):
                 try:
-                    return [int(val[0]), int(val[1])]
+                    return [int(val[i]) for i in range(len(default))]
                 except (ValueError, TypeError):
                     return list(default)
             return list(default)
@@ -1072,6 +1144,18 @@ class ControlBoardSettings:
             dhw_target_temperature=_get_val(
                 "dhwTargetTemperature", "DhwTargetTemperature", dhw_default, float
             ),
+            control_method=_get_val(
+                "controlMethod",
+                "ControlMethod",
+                int(ControlMethod.SMART_OPEN_THERM),
+                int,
+            ),
+            heating_curve_x=_get_int_list(
+                "heatingCurveX", "HeatingCurveX", DEFAULT_HEATING_CURVE_X
+            ),
+            heating_curve_y=_get_int_list(
+                "heatingCurveY", "HeatingCurveY", DEFAULT_HEATING_CURVE_Y
+            ),
             cooling_control_method=_get_val(
                 "coolingControlMethod", "CoolingControlMethod", 0, int
             ),
@@ -1094,6 +1178,68 @@ class ControlBoardSettings:
             schedules=schedules,
             raw_settings=settings_dict,
         )
+
+    def build_heating_curve_payload(
+        self,
+        control_method: int | None = None,
+        curve_y: Sequence[int] | None = None,
+        at_minus_20c: int | None = None,
+        at_9c: int | None = None,
+        at_15c: int | None = None,
+        at_20c: int | None = None,
+        at_25c: int | None = None,
+    ) -> dict[str, Any]:
+        """Build the portal-compliant PATCH payload for heating control method and 5-point heating curve.
+
+        Mirrors the Weheat Portal Control tab:
+        - ControlMethod: 1 ("Heating curve"), 2 ("On/Off thermostat"), 4 ("OpenTherm thermostat").
+        - HeatingCurveY: [at_-20c, at_9c, at_15c, at_20c, at_25c] clamped to 0..70 °C.
+        """
+        has_curve_overrides = curve_y is not None or any(
+            v is not None for v in (at_minus_20c, at_9c, at_15c, at_20c, at_25c)
+        )
+        target_method = (
+            self.control_method if control_method is None else int(control_method)
+        )
+        if target_method not in (
+            ControlMethod.HEATING_CURVE,
+            ControlMethod.ON_OFF_THERMOSTAT,
+            ControlMethod.SMART_OPEN_THERM,
+        ):
+            target_method = int(ControlMethod.HEATING_CURVE)
+
+        if curve_y is not None and len(curve_y) == 5:
+            raw_y = [int(v) for v in curve_y]
+        else:
+            raw_y = [
+                self.heating_curve_at_minus_20c
+                if at_minus_20c is None
+                else int(at_minus_20c),
+                self.heating_curve_at_9c if at_9c is None else int(at_9c),
+                self.heating_curve_at_15c if at_15c is None else int(at_15c),
+                self.heating_curve_at_20c if at_20c is None else int(at_20c),
+                self.heating_curve_at_25c if at_25c is None else int(at_25c),
+            ]
+
+        clamped_y = [
+            max(HEATING_CURVE_API_MIN_TEMP, min(HEATING_CURVE_API_MAX_TEMP, val))
+            for val in raw_y
+        ]
+
+        payload_settings: dict[str, Any] = {
+            "ControlMethod": int(target_method),
+        }
+        if (
+            target_method
+            in (ControlMethod.HEATING_CURVE, ControlMethod.ON_OFF_THERMOSTAT)
+            or has_curve_overrides
+        ):
+            payload_settings["HeatingCurveY"] = clamped_y
+
+        return {
+            "settings": payload_settings,
+            "updateImmediately": False,
+        }
 
     def build_cooling_payload(
         self,
