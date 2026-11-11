@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.climate import HVACAction, HVACMode
-from homeassistant.const import ATTR_TEMPERATURE, CONF_ACCESS_TOKEN, CONF_TOKEN
+from homeassistant.const import (
+    ATTR_TEMPERATURE,
+    CONF_ACCESS_TOKEN,
+    CONF_TOKEN,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -313,8 +318,12 @@ async def test_climate_thermostat_entity(mock_hp_info: HeatPumpInfo) -> None:
     assert len(added_climates) == 1
 
     thermostat = added_climates[0]
-    assert thermostat.current_temperature == 20.8
-    assert thermostat.target_temperature == 21.0
+    assert "current_temperature" not in WeheatHeatingThermostat.__dict__
+    assert "target_temperature" not in WeheatHeatingThermostat.__dict__
+    assert "_attr_temperature_unit" not in thermostat.__dict__
+    assert thermostat.native_temperature_unit == UnitOfTemperature.CELSIUS
+    assert thermostat.native_current_temperature == 20.8
+    assert thermostat.native_target_temperature == 21.0
     assert thermostat.hvac_mode == HVACMode.HEAT
     assert thermostat.hvac_action == HVACAction.HEATING
     assert thermostat.preset_mode == PRESET_COMFORT

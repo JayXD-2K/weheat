@@ -291,11 +291,33 @@ class ClimateEntity(Entity):
     _attr_hvac_action: HVACAction | None = None
     _attr_preset_mode: str | None = None
     _attr_preset_modes: list[str] = []
-    _attr_temperature_unit: str = "°C"
+    _attr_native_temperature_unit: str = "°C"
+    _attr_native_current_temperature: float | None = None
+    _attr_native_target_temperature: float | None = None
     _attr_min_temp: float = 7.0
     _attr_max_temp: float = 35.0
     _attr_target_temperature_step: float = 0.5
     _attr_supported_features: int = 0
+
+    @property
+    def native_temperature_unit(self) -> str:
+        return self._attr_native_temperature_unit
+
+    @property
+    def native_current_temperature(self) -> float | None:
+        return self._attr_native_current_temperature
+
+    @property
+    def native_target_temperature(self) -> float | None:
+        return self._attr_native_target_temperature
+
+    @property
+    def current_temperature(self) -> float | None:
+        return self.native_current_temperature
+
+    @property
+    def target_temperature(self) -> float | None:
+        return self.native_target_temperature
 
     @property
     def hvac_modes(self) -> list[HVACMode]:

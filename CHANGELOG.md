@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.10] - 2026-11-11
+- Migrated `climate` thermostat entity to Home Assistant 2026.11 `native_*` temperature properties (`native_current_temperature`, `native_target_temperature`, `_attr_native_temperature_unit`) and updated minimum HA version to `2026.11.0`.
+
+## [0.1.9] - 2026-11-10
+- Added `climate` thermostat entity, 5-point heating curve number controls, `control_method` select, `weheat.set_heating_curve` action, and configurable polling intervals.
+
 ## [0.1.8] - 2026-11-06
 - Deduplicated control entity logic (`number`, `select`, `switch`, `time`), coordinator refresh helpers, and API validation.
 - Hardened portal authentication with HTTPS/origin checks, OAuth `state` verification, URL path sanitization, and expanded diagnostics redaction.

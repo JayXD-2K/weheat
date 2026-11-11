@@ -158,7 +158,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         )
         self._data_coordinator = data_coordinator
         self._attr_icon = "mdi:thermostat"
-        self._attr_temperature_unit = UnitOfTemperature.CELSIUS
+        self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS
         self._attr_hvac_modes = [HVACMode.HEAT, HVACMode.AUTO, HVACMode.OFF]
         self._attr_preset_modes = list(CLIMATE_PRESET_MODES)
         self._attr_supported_features = (
@@ -184,7 +184,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         return None
 
     @property
-    def current_temperature(self) -> float | None:
+    def native_current_temperature(self) -> float | None:
         """Return the current room temperature (°C)."""
         log = self._get_log()
         if log is not None and log.t_room is not None:
@@ -195,7 +195,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         return self._last_valid_room_temp
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the target room temperature (°C)."""
         settings = self._get_settings()
         log = self._get_log()
