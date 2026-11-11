@@ -397,3 +397,27 @@ async def test_climate_thermostat_entity(mock_hp_info: HeatPumpInfo) -> None:
             "updateImmediately": False,
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_registered_services_are_coroutine_functions() -> None:
+    """Verify all registered service handlers are true coroutine functions awaited by HA."""
+    import inspect
+
+    registered: dict[tuple[str, str], object] = {}
+    hass = MagicMock(spec=HomeAssistant)
+    hass.services = MagicMock()
+    hass.services.has_service.return_value = False
+
+    def _register(domain: str, service: str, handler: object) -> None:
+        registered[(domain, service)] = handler
+
+    hass.services.async_register.side_effect = _register
+    await async_setup_services(hass)
+
+    assert len(registered) == 5
+    for (domain, service), handler in registered.items():
+        assert domain == "weheat"
+        assert inspect.iscoroutinefunction(handler), (
+            f"Service {domain}.{service} handler must be an async coroutine function, not a synchronous lambda"
+        )

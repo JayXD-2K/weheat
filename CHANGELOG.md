@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.11] - 2026-11-11
+- Fixed custom action registration (`weheat.set_quiet_mode`, `weheat.set_silent_schedule`, `weheat.trigger_legionella_prevention`, `weheat.set_cooling`, `weheat.set_heating_curve`) to use native `async def` coroutine handlers instead of synchronous `lambda` wrappers so Home Assistant awaits service execution properly.
+
 ## [0.1.10] - 2026-11-11
 - Migrated `climate` thermostat entity to Home Assistant 2026.11 `native_*` temperature properties (`native_current_temperature`, `native_target_temperature`, `_attr_native_temperature_unit`) and updated minimum HA version to `2026.11.0`.
 

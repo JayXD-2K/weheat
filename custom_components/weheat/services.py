@@ -963,30 +963,45 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     ):
         return
 
+    async def _handle_set_quiet_mode(call: ServiceCall) -> None:
+        await async_handle_set_quiet_mode(hass, call)
+
+    async def _handle_set_silent_schedule(call: ServiceCall) -> None:
+        await async_handle_set_silent_schedule(hass, call)
+
+    async def _handle_trigger_legionella(call: ServiceCall) -> None:
+        await async_handle_trigger_legionella(hass, call)
+
+    async def _handle_set_cooling(call: ServiceCall) -> None:
+        await async_handle_set_cooling(hass, call)
+
+    async def _handle_set_heating_curve(call: ServiceCall) -> None:
+        await async_handle_set_heating_curve(hass, call)
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_QUIET_MODE,
-        lambda call: async_handle_set_quiet_mode(hass, call),
+        _handle_set_quiet_mode,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_SILENT_SCHEDULE,
-        lambda call: async_handle_set_silent_schedule(hass, call),
+        _handle_set_silent_schedule,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_TRIGGER_LEGIONELLA,
-        lambda call: async_handle_trigger_legionella(hass, call),
+        _handle_trigger_legionella,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_COOLING,
-        lambda call: async_handle_set_cooling(hass, call),
+        _handle_set_cooling,
     )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_HEATING_CURVE,
-        lambda call: async_handle_set_heating_curve(hass, call),
+        _handle_set_heating_curve,
     )
     _LOGGER.info(
         "Registered Weheat custom actions: %s, %s, %s, %s, %s",
