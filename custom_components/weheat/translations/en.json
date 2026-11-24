@@ -417,9 +417,10 @@
             "state": {
               "comfort": "Comfort (21.0°C curve)",
               "eco": "Eco / Night (20.5°C curve)",
-              "boost": "Boost / Recovery (21.5°C curve)",
+              "boost": "Boost / Recovery (22.0°C curve)",
               "standby": "Standby / Idle",
-              "opentherm": "OpenTherm wall thermostat"
+              "thermostat": "Thermostat",
+              "opentherm": "Thermostat"
             }
           }
         }

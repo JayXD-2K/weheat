@@ -50,14 +50,15 @@ PRESET_COMFORT = "comfort"
 PRESET_ECO = "eco"
 PRESET_BOOST = "boost"
 PRESET_STANDBY = "standby"
-PRESET_OPENTHERM = "opentherm"
+PRESET_THERMOSTAT = "thermostat"
+PRESET_OPENTHERM = "opentherm"  # Legacy alias for PRESET_THERMOSTAT
 
 CLIMATE_PRESET_MODES: list[str] = [
     PRESET_COMFORT,
     PRESET_ECO,
     PRESET_BOOST,
     PRESET_STANDBY,
-    PRESET_OPENTHERM,
+    PRESET_THERMOSTAT,
 ]
 
 MIN_ROOM_TEMP = 16.0
@@ -159,7 +160,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         self._data_coordinator = data_coordinator
         self._attr_icon = "mdi:thermostat"
         self._attr_native_temperature_unit = UnitOfTemperature.CELSIUS
-        self._attr_hvac_modes = [HVACMode.HEAT, HVACMode.AUTO, HVACMode.OFF]
+        self._attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
         self._attr_preset_modes = list(CLIMATE_PRESET_MODES)
         self._attr_supported_features = (
             ClimateEntityFeature.TARGET_TEMPERATURE
@@ -171,6 +172,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         self._attr_max_temp = MAX_ROOM_TEMP
         self._attr_target_temperature_step = ROOM_TEMP_STEP
         self._last_valid_room_temp: float | None = None
+        self._full_auto: bool = False
 
     def _get_log(self) -> HeatPumpLog | None:
         """Return latest HeatPumpLog from data_coordinator if available."""
@@ -215,11 +217,13 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Return current HVAC operating mode."""
+        """Return current HVAC operating mode (AUTO=full auto, HEAT=manual/thermostat, OFF=standby)."""
         settings = self._get_settings()
         if settings is None:
-            return HVACMode.AUTO
+            return HVACMode.AUTO if self._full_auto else HVACMode.HEAT
         if settings.control_method == ControlMethod.SMART_OPEN_THERM:
+            return HVACMode.HEAT
+        if self._full_auto:
             return HVACMode.AUTO
         if settings.heating_curve_at_minus_20c <= 22:
             return HVACMode.OFF
@@ -246,7 +250,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         if settings is None:
             return None
         if settings.control_method == ControlMethod.SMART_OPEN_THERM:
-            return PRESET_OPENTHERM
+            return PRESET_THERMOSTAT
         at_m20 = settings.heating_curve_at_minus_20c
         if at_m20 <= 22:
             return PRESET_STANDBY
@@ -261,7 +265,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         """Return diagnostic heating curve and water target attributes."""
         settings = self._get_settings()
         log = self._get_log()
-        attrs: dict[str, Any] = {}
+        attrs: dict[str, Any] = {"full_auto": self._full_auto}
         if settings is not None:
             attrs["control_method_id"] = settings.control_method
             attrs["heating_curve_x"] = list(DEFAULT_HEATING_CURVE_X)
@@ -350,40 +354,51 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
         )
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set new target HVAC mode (HEAT, AUTO, OFF)."""
+        """Set new target HVAC mode (AUTO=full auto, HEAT=manual/thermostat, OFF=standby)."""
+        settings = self._get_settings()
+        active_curve_y = (
+            [
+                settings.heating_curve_at_minus_20c,
+                settings.heating_curve_at_9c,
+                settings.heating_curve_at_15c,
+                settings.heating_curve_at_20c,
+                settings.heating_curve_at_25c,
+            ]
+            if settings is not None and 25 <= settings.heating_curve_at_minus_20c <= 42
+            else list(COMFORT_HEATING_CURVE_Y)
+        )
         if hvac_mode == HVACMode.OFF:
+            self._full_auto = False
             await self._async_apply_heating_settings(
                 control_method=int(ControlMethod.HEATING_CURVE),
                 curve_y=list(STANDBY_HEATING_CURVE_Y),
             )
         elif hvac_mode == HVACMode.AUTO:
-            await self._async_apply_heating_settings(
-                control_method=int(ControlMethod.SMART_OPEN_THERM),
-                curve_y=None,
-            )
-        elif hvac_mode == HVACMode.HEAT:
-            settings = self._get_settings()
-            current_y = (
-                [
-                    settings.heating_curve_at_minus_20c,
-                    settings.heating_curve_at_9c,
-                    settings.heating_curve_at_15c,
-                    settings.heating_curve_at_20c,
-                    settings.heating_curve_at_25c,
-                ]
-                if settings is not None
-                and 25 <= settings.heating_curve_at_minus_20c <= 42
-                else list(COMFORT_HEATING_CURVE_Y)
-            )
+            self._full_auto = True
             await self._async_apply_heating_settings(
                 control_method=int(ControlMethod.HEATING_CURVE),
-                curve_y=current_y,
+                curve_y=active_curve_y,
             )
+        elif hvac_mode == HVACMode.HEAT:
+            self._full_auto = False
+            if (
+                settings is not None
+                and settings.control_method == ControlMethod.SMART_OPEN_THERM
+            ):
+                await self._async_apply_heating_settings(
+                    control_method=int(ControlMethod.SMART_OPEN_THERM),
+                    curve_y=None,
+                )
+            else:
+                await self._async_apply_heating_settings(
+                    control_method=int(ControlMethod.HEATING_CURVE),
+                    curve_y=active_curve_y,
+                )
         else:
             raise HomeAssistantError(f"Unsupported HVAC mode: {hvac_mode}")
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
-        """Set new preset mode (comfort, eco, boost, standby, opentherm)."""
+        """Set new preset mode (comfort, eco, boost, standby, thermostat)."""
         norm = preset_mode.strip().lower()
         if norm == PRESET_COMFORT:
             await self._async_apply_heating_settings(
@@ -405,7 +420,8 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
                 control_method=int(ControlMethod.HEATING_CURVE),
                 curve_y=list(STANDBY_HEATING_CURVE_Y),
             )
-        elif norm == PRESET_OPENTHERM:
+        elif norm in (PRESET_THERMOSTAT, PRESET_OPENTHERM):
+            self._full_auto = False
             await self._async_apply_heating_settings(
                 control_method=int(ControlMethod.SMART_OPEN_THERM),
                 curve_y=None,

@@ -21,6 +21,7 @@ from custom_components.weheat.climate import (
     PRESET_ECO,
     PRESET_OPENTHERM,
     PRESET_STANDBY,
+    PRESET_THERMOSTAT,
     WeheatHeatingThermostat,
     curve_for_room_temperature,
     room_temperature_from_curve,
@@ -372,7 +373,30 @@ async def test_climate_thermostat_entity(mock_hp_info: HeatPumpInfo) -> None:
         },
     )
 
-    # Set preset to opentherm
+    # Set preset to thermostat (and legacy opentherm alias) -> HVACMode.HEAT + ControlMethod=4
+    await thermostat.async_set_hvac_mode(HVACMode.AUTO)
+    assert thermostat.hvac_mode == HVACMode.AUTO
+    assert thermostat.extra_state_attributes["full_auto"] is True
+
+    await thermostat.async_set_preset_mode(PRESET_THERMOSTAT)
+    client.async_patch_control_board_settings.assert_awaited_with(
+        control_board_id=TEST_CB_UUID,
+        token="tok",
+        settings={
+            "settings": {
+                "ControlMethod": 4,
+            },
+            "updateImmediately": False,
+        },
+    )
+    settings_coord.data = ControlBoardSettings(
+        control_method=ControlMethod.SMART_OPEN_THERM,
+        heating_curve_y=[37, 28, 24, 20, 18],
+    )
+    assert thermostat.preset_mode == PRESET_THERMOSTAT
+    assert thermostat.hvac_mode == HVACMode.HEAT
+    assert thermostat.extra_state_attributes["full_auto"] is False
+
     await thermostat.async_set_preset_mode(PRESET_OPENTHERM)
     client.async_patch_control_board_settings.assert_awaited_with(
         control_board_id=TEST_CB_UUID,
