@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.12] - 2026-11-24
+- Updated `BOOST_HEATING_CURVE_Y` from `(39, 30, 25, 21, 18)` (`+2°C` water offset) to `(41, 32, 27, 22, 18)` (`+4°C` water offset over `Comfort`) so the `Boost` preset delivers sufficient supply water lift for cold/sub-zero underfloor slab recovery.
+
 ## [0.1.11] - 2026-11-11
 - Fixed custom action registration (`weheat.set_quiet_mode`, `weheat.set_silent_schedule`, `weheat.trigger_legionella_prevention`, `weheat.set_cooling`, `weheat.set_heating_curve`) to use native `async def` coroutine handlers instead of synchronous `lambda` wrappers so Home Assistant awaits service execution properly.
 

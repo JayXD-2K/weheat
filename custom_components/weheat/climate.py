@@ -79,7 +79,7 @@ def curve_for_room_temperature(target_temp: float) -> list[int]:
         return list(STANDBY_HEATING_CURVE_Y)
 
     offset = round((temp - DEFAULT_ROOM_TARGET) * 4.0)
-    y0 = max(25, min(40, COMFORT_HEATING_CURVE_Y[0] + offset))
+    y0 = max(25, min(41, COMFORT_HEATING_CURVE_Y[0] + offset))
     y1 = max(20, min(33, COMFORT_HEATING_CURVE_Y[1] + offset))
     y2 = max(18, min(28, COMFORT_HEATING_CURVE_Y[2] + round(offset * 0.75)))
     y3 = max(18, min(24, COMFORT_HEATING_CURVE_Y[3] + round(offset * 0.5)))
@@ -372,7 +372,7 @@ class WeheatHeatingThermostat(WeheatControlEntity, ClimateEntity):
                     settings.heating_curve_at_25c,
                 ]
                 if settings is not None
-                and 25 <= settings.heating_curve_at_minus_20c <= 40
+                and 25 <= settings.heating_curve_at_minus_20c <= 42
                 else list(COMFORT_HEATING_CURVE_Y)
             )
             await self._async_apply_heating_settings(

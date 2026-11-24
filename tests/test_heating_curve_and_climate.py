@@ -273,6 +273,7 @@ async def test_climate_thermostat_entity(mock_hp_info: HeatPumpInfo) -> None:
     assert curve_for_room_temperature(21.0) == [37, 28, 24, 20, 18]
     assert curve_for_room_temperature(20.5) == [35, 26, 22, 19, 18]
     assert curve_for_room_temperature(21.5) == [39, 30, 26, 21, 18]
+    assert curve_for_room_temperature(22.0) == [41, 32, 27, 22, 18]
     assert curve_for_room_temperature(18.0) == [20, 18, 18, 18, 18]
     assert room_temperature_from_curve(37) == 21.0
     assert room_temperature_from_curve(35) == 20.5
@@ -351,7 +352,7 @@ async def test_climate_thermostat_entity(mock_hp_info: HeatPumpInfo) -> None:
         settings={
             "settings": {
                 "ControlMethod": 1,
-                "HeatingCurveY": [39, 30, 25, 21, 18],
+                "HeatingCurveY": [41, 32, 27, 22, 18],
             },
             "updateImmediately": False,
         },
